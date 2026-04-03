@@ -38,8 +38,20 @@ contextBridge.exposeInMainWorld('phoneBridge', {
     ipcRenderer.invoke('send-signaling', msg);
   },
 
-  // Send video frame to virtual camera (Phase 3)
+  // Send video frame to virtual camera (Softcam)
   sendVideoFrame: (frameBuffer: ArrayBuffer, width: number, height: number) => {
     ipcRenderer.invoke('send-video-frame', Buffer.from(frameBuffer), width, height);
+  },
+
+  // Send PCM audio frame to VirtualMicrophone → VB-Cable
+  // Uses ipcRenderer.send (fire-and-forget) for low-latency audio path
+  sendAudioFrame: (frameBuffer: ArrayBuffer) => {
+    ipcRenderer.send('send-audio-frame', Buffer.from(frameBuffer));
+  },
+
+  // Driver status
+  getDriverStatus: () => ipcRenderer.invoke('get-driver-status'),
+  onDriverStatus: (callback: (status: { softcamReady: boolean; vbCableReady: boolean }) => void) => {
+    ipcRenderer.on('driver-status', (_event, status) => callback(status));
   },
 });

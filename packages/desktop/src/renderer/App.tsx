@@ -1,12 +1,18 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import Dashboard from './components/Dashboard';
 import { useWebRTC } from './hooks/useWebRTC';
+import { AudioDecoder } from './audio/AudioDecoder';
 import type {
   ConnectionState,
   CameraDevice,
   MicrophoneDevice,
   SensorType,
 } from '@phonebridge/shared';
+
+interface DriverStatus {
+  softcamReady: boolean;
+  vbCableReady: boolean;
+}
 
 interface PhoneBridgeAPI {
   getConnectionInfo: () => Promise<{ ip: string; port: number; sessionId: string }>;
@@ -22,6 +28,9 @@ interface PhoneBridgeAPI {
   onPhoneStatus: (cb: (status: any) => void) => void;
   sendSignaling: (msg: unknown) => void;
   sendVideoFrame: (frameBuffer: ArrayBuffer, width: number, height: number) => void;
+  sendAudioFrame: (frameBuffer: ArrayBuffer) => void;
+  getDriverStatus: () => Promise<DriverStatus>;
+  onDriverStatus: (cb: (status: DriverStatus) => void) => void;
 }
 
 declare global {
@@ -37,6 +46,7 @@ const mockBridge: PhoneBridgeAPI = {
   sendCommand: noopAsync,
   getSensorData: noopAsync,
   getSensorHistory: noopAsync,
+  getDriverStatus: () => Promise.resolve({ softcamReady: false, vbCableReady: false }),
   onInit: noop,
   onPhoneConnected: noop,
   onConnectionState: noop,
@@ -44,8 +54,10 @@ const mockBridge: PhoneBridgeAPI = {
   onDeviceInfo: noop,
   onSensorData: noop,
   onPhoneStatus: noop,
+  onDriverStatus: noop,
   sendSignaling: noop,
   sendVideoFrame: noop,
+  sendAudioFrame: noop,
 };
 
 function getBridge(): PhoneBridgeAPI {
@@ -112,6 +124,7 @@ export interface AppState {
   batteryLevel: number;
   isCharging: boolean;
   sensorData: Record<string, { data: any; timestamp: number }>;
+  driverStatus: DriverStatus;
 }
 
 export default function App() {
@@ -130,6 +143,7 @@ export default function App() {
     batteryLevel: 0,
     isCharging: false,
     sensorData: {},
+    driverStatus: { softcamReady: false, vbCableReady: false },
   });
 
   const [settings, setSettings] = useState<AppSettings>(() => {
@@ -140,12 +154,14 @@ export default function App() {
     return DEFAULT_SETTINGS;
   });
 
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const videoRef   = useRef<HTMLVideoElement>(null);
+  const canvasRef  = useRef<HTMLCanvasElement>(null);
   const frameLoopRef = useRef<number | null>(null);
+  const audioDecoderRef = useRef<AudioDecoder>(new AudioDecoder());
 
-  const startFrameCapture = (stream: MediaStream) => {
-    const video = videoRef.current;
+  // ── Video frame capture → Softcam ──────────────────────────────────────────
+  const startFrameCapture = useCallback((stream: MediaStream) => {
+    const video  = videoRef.current;
     const canvas = canvasRef.current;
     if (!video || !canvas) return;
 
@@ -153,9 +169,8 @@ export default function App() {
     video.play().catch(() => {});
 
     video.onloadedmetadata = () => {
-      canvas.width = video.videoWidth;
+      canvas.width  = video.videoWidth;
       canvas.height = video.videoHeight;
-
       const ctx = canvas.getContext('2d');
       if (!ctx) return;
 
@@ -167,13 +182,20 @@ export default function App() {
         }
         frameLoopRef.current = requestAnimationFrame(captureFrame);
       };
-
       frameLoopRef.current = requestAnimationFrame(captureFrame);
     };
-  };
+
+    // ── Audio → VB-Cable ─────────────────────────────────────────────────────
+    if (stream.getAudioTracks().length > 0) {
+      audioDecoderRef.current.start(stream).catch((err) => {
+        console.warn('[App] AudioDecoder failed to start:', err);
+      });
+    }
+  }, []);
 
   useWebRTC({ onTrack: startFrameCapture });
 
+  // ── Bridge event handlers ──────────────────────────────────────────────────
   useEffect(() => {
     getBridge().onInit((data: any) => {
       setState((prev) => ({ ...prev, ip: data.ip, port: data.port, qrCode: data.qrCode }));
@@ -181,22 +203,25 @@ export default function App() {
 
     getBridge().onPhoneConnected((connected) => {
       setState((prev) => ({ ...prev, connectionState: connected ? 'connected' : 'disconnected' }));
-      if (!connected && frameLoopRef.current) {
-        cancelAnimationFrame(frameLoopRef.current);
-        frameLoopRef.current = null;
+      if (!connected) {
+        if (frameLoopRef.current) {
+          cancelAnimationFrame(frameLoopRef.current);
+          frameLoopRef.current = null;
+        }
+        audioDecoderRef.current.stop();
       }
     });
 
     getBridge().onDeviceInfo((info: any) => {
       setState((prev) => ({
         ...prev,
-        cameras: info.cameras || [],
-        microphones: info.microphones || [],
-        sensors: info.sensors || [],
-        phoneModel: info.model || '',
-        phonePlatform: info.platform || '',
-        activeCameraId: info.cameras?.[0]?.id || null,
-        activeMicId: info.microphones?.[0]?.id || null,
+        cameras:      info.cameras      || [],
+        microphones:  info.microphones  || [],
+        sensors:      info.sensors      || [],
+        phoneModel:   info.model        || '',
+        phonePlatform: info.platform    || '',
+        activeCameraId: info.cameras?.[0]?.id  || null,
+        activeMicId:    info.microphones?.[0]?.id || null,
       }));
     });
 
@@ -219,11 +244,22 @@ export default function App() {
       setState((prev) => ({ ...prev, batteryLevel: status.battery, isCharging: status.isCharging }));
     });
 
+    getBridge().onDriverStatus((status) => {
+      setState((prev) => ({ ...prev, driverStatus: status }));
+    });
+
+    // Load initial driver status
+    getBridge().getDriverStatus().then((status) => {
+      setState((prev) => ({ ...prev, driverStatus: status }));
+    }).catch(() => {});
+
     return () => {
       if (frameLoopRef.current) cancelAnimationFrame(frameLoopRef.current);
+      audioDecoderRef.current.stop();
     };
   }, []);
 
+  // ── Commands ───────────────────────────────────────────────────────────────
   const switchCamera = (deviceId: string) => {
     getBridge().sendCommand({ cmd: 'switchCamera', deviceId });
     setState((prev) => ({ ...prev, activeCameraId: deviceId }));
@@ -237,20 +273,17 @@ export default function App() {
   const applySettings = useCallback((next: AppSettings) => {
     setSettings(next);
     try { localStorage.setItem('phonebridge-settings', JSON.stringify(next)); } catch {}
-    // Send video quality command to phone
+
     const resMap: Record<string, { w: number; h: number }> = {
-      '480p': { w: 854, h: 480 },
-      '720p': { w: 1280, h: 720 },
+      '480p':  { w: 854,  h: 480  },
+      '720p':  { w: 1280, h: 720  },
       '1080p': { w: 1920, h: 1080 },
-      '4K': { w: 3840, h: 2160 },
+      '4K':    { w: 3840, h: 2160 },
     };
     const { w, h } = resMap[next.video.resolution];
     getBridge().sendCommand({
-      cmd: 'setVideoQuality',
-      width: w, height: h,
-      fps: next.video.fps,
-      codec: next.video.codec,
-      bitrateKbps: next.video.bitrateKbps,
+      cmd: 'setVideoQuality', width: w, height: h,
+      fps: next.video.fps, codec: next.video.codec, bitrateKbps: next.video.bitrateKbps,
     });
     getBridge().sendCommand({
       cmd: 'setAudioQuality',
@@ -260,7 +293,6 @@ export default function App() {
       noiseSuppression: next.audio.noiseSuppression,
       echoCancellation: next.audio.echoCancellation,
     });
-    // Apply per-sensor settings
     Object.entries(next.sensors).forEach(([sensor, cfg]) => {
       getBridge().sendCommand({ cmd: 'enableSensor', sensor, enabled: cfg.enabled });
       getBridge().sendCommand({ cmd: 'setSensorRate', sensor, intervalMs: cfg.intervalMs });

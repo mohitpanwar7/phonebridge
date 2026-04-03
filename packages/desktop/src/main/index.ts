@@ -7,6 +7,9 @@ import { RestServer } from './api/RestServer';
 import { SensorWebSocketServer } from './api/WebSocketServer';
 import { QRGenerator } from './QRGenerator';
 import { VirtualCamera } from './VirtualCamera';
+import { VirtualMicrophone } from './VirtualMicrophone';
+import { VBCableDetector } from './VBCableDetector';
+import { SoftcamInstaller } from './SoftcamInstaller';
 import {
   SIGNALING_PORT,
   REST_API_PORT,
@@ -21,7 +24,14 @@ let sensorStore: SensorStore;
 let restServer: RestServer;
 let wsServer: SensorWebSocketServer;
 let virtualCamera: VirtualCamera;
+let virtualMic: VirtualMicrophone;
+let vbCableDetector: VBCableDetector;
+let softcamInstaller: SoftcamInstaller;
 let cachedInitData: unknown = null;
+
+// Track driver status for renderer
+let softcamReady = false;
+let vbCableReady = false;
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -48,6 +58,8 @@ function createWindow() {
     if (cachedInitData) {
       mainWindow?.webContents.send('init', cachedInitData);
     }
+    // Send driver status once renderer is ready
+    mainWindow?.webContents.send('driver-status', { softcamReady, vbCableReady });
   });
 
   mainWindow.on('closed', () => {
@@ -56,8 +68,11 @@ function createWindow() {
 }
 
 async function startServices() {
-  sensorStore = new SensorStore();
-  virtualCamera = new VirtualCamera();
+  sensorStore       = new SensorStore();
+  virtualCamera     = new VirtualCamera();
+  virtualMic        = new VirtualMicrophone();
+  vbCableDetector   = new VBCableDetector();
+  softcamInstaller  = new SoftcamInstaller();
 
   signalingServer = new SignalingServer(SIGNALING_PORT, sensorStore, (event, data) => {
     mainWindow?.webContents.send(event, data);
@@ -89,8 +104,27 @@ async function startServices() {
     qrCode: qrCodeDataURL,
   };
 
-  // Send now — works if renderer already loaded; did-finish-load handler covers the other case
   mainWindow?.webContents.send('init', cachedInitData);
+
+  // ── Check and install virtual drivers (non-blocking, don't block app start) ──
+  checkDrivers();
+}
+
+async function checkDrivers() {
+  // Check Softcam (virtual webcam)
+  softcamReady = await softcamInstaller.ensureInstalled();
+  mainWindow?.webContents.send('driver-status', { softcamReady, vbCableReady });
+
+  // Check VB-Cable (virtual mic)
+  vbCableReady = await vbCableDetector.ensureInstalled();
+  if (vbCableReady) {
+    const started = virtualMic.start();
+    if (!started) {
+      console.warn('[Main] VB-Cable detected but VirtualMicrophone could not start (naudiodon missing?)');
+      vbCableReady = false;
+    }
+  }
+  mainWindow?.webContents.send('driver-status', { softcamReady, vbCableReady });
 }
 
 function getLocalIP(): string {
@@ -106,7 +140,8 @@ function getLocalIP(): string {
   return '127.0.0.1';
 }
 
-// IPC handlers
+// ── IPC handlers ──────────────────────────────────────────────────────────────
+
 ipcMain.handle('get-connection-info', () => ({
   ip: getLocalIP(),
   port: SIGNALING_PORT,
@@ -125,23 +160,33 @@ ipcMain.handle('get-sensor-history', (_event, sensor: string, limit: number) => 
   return sensorStore?.getHistory(sensor, limit);
 });
 
-// Forward signaling messages from renderer back to phone
 ipcMain.handle('send-signaling', (_event, msg) => {
   signalingServer?.sendSignaling(msg);
 });
 
-// Forward frames from renderer to virtual camera
+// Video frames from renderer → Softcam virtual webcam
 ipcMain.handle('send-video-frame', (_event, frameBuffer: Buffer, width: number, height: number) => {
   if (!virtualCamera) return;
-  // Create camera on first frame or if dimensions changed
-  if (!virtualCamera.isActive ||
-      virtualCamera.dimensions.width !== width ||
-      virtualCamera.dimensions.height !== height) {
+  if (
+    !virtualCamera.isActive ||
+    virtualCamera.dimensions.width  !== width ||
+    virtualCamera.dimensions.height !== height
+  ) {
     if (virtualCamera.isActive) virtualCamera.destroy();
     virtualCamera.create(width, height, 30);
   }
   virtualCamera.sendFrame(frameBuffer);
 });
+
+// PCM audio frames from renderer AudioWorklet → VirtualMicrophone → VB-Cable
+ipcMain.on('send-audio-frame', (_event, frameBuffer: Buffer) => {
+  virtualMic?.writePCM(frameBuffer);
+});
+
+// Driver status query from renderer
+ipcMain.handle('get-driver-status', () => ({ softcamReady, vbCableReady }));
+
+// ─────────────────────────────────────────────────────────────────────────────
 
 app.whenReady().then(async () => {
   createWindow();
@@ -158,11 +203,10 @@ app.on('window-all-closed', () => {
   restServer?.stop();
   wsServer?.stop();
   virtualCamera?.destroy();
+  virtualMic?.stop();
   app.quit();
 });
 
 app.on('activate', () => {
-  if (mainWindow === null) {
-    createWindow();
-  }
+  if (mainWindow === null) createWindow();
 });

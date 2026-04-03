@@ -229,10 +229,34 @@ function SensorsTab({ sensorData }: { sensorData: Record<string, { data: any; ti
 
 // ─── SETTINGS TAB ────────────────────────────────────────────────────────────
 
+function DriverBadge({ ready, label }: { ready: boolean; label: string }) {
+  return (
+    <div style={{
+      display: 'flex', alignItems: 'center', gap: 6,
+      padding: '3px 10px', borderRadius: 20, fontSize: 11, fontWeight: 600,
+      background: ready ? C.greenBg : C.amberBg,
+      color: ready ? C.green : C.amber,
+      border: `1px solid ${ready ? C.green : C.amber}40`,
+    }}>
+      <div style={{
+        width: 5, height: 5, borderRadius: '50%',
+        background: ready ? C.green : C.amber,
+        boxShadow: ready ? `0 0 4px ${C.green}` : 'none',
+      }} />
+      {label}: {ready ? 'Ready' : 'Not installed'}
+    </div>
+  );
+}
+
 function SettingsTab({
   settings,
   onChange,
-}: { settings: AppSettings; onChange: (s: AppSettings) => void }) {
+  driverStatus,
+}: {
+  settings: AppSettings;
+  onChange: (s: AppSettings) => void;
+  driverStatus: { softcamReady: boolean; vbCableReady: boolean };
+}) {
   const setVideo = (patch: Partial<AppSettings['video']>) =>
     onChange({ ...settings, video: { ...settings.video, ...patch } });
   const setAudio = (patch: Partial<AppSettings['audio']>) =>
@@ -319,18 +343,22 @@ function SettingsTab({
         ))}
       </div>
 
-      <SectionHeader icon="📷" title="Virtual Camera" />
-      <div style={card({ padding: '12px 14px', marginBottom: 8 })}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-          <div style={{
-            padding: '3px 10px', borderRadius: 20, fontSize: 12, fontWeight: 600,
-            background: C.amberBg, color: C.amber, border: `1px solid ${C.amber}40`,
-          }}>Not Installed</div>
+      <SectionHeader icon="📷" title="Virtual Drivers" />
+      <div style={card({ padding: '10px 14px', marginBottom: 8 })}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <DriverBadge ready={driverStatus.softcamReady} label="Virtual Webcam (Softcam)" />
+          <DriverBadge ready={driverStatus.vbCableReady} label="Virtual Mic (VB-Cable)" />
         </div>
-        <div style={{ fontSize: 12, color: C.t3, lineHeight: 1.6 }}>
-          Virtual webcam requires Softcam (DirectShow filter).<br />
-          Run: <code style={{ color: C.accentL }}>cd native/softcam-addon && npm run build</code>
-        </div>
+        {(!driverStatus.softcamReady || !driverStatus.vbCableReady) && (
+          <div style={{ fontSize: 11, color: C.t4, lineHeight: 1.6, marginTop: 10 }}>
+            {!driverStatus.softcamReady && (
+              <div>• Softcam: build the addon and run the app to install the DirectShow filter.</div>
+            )}
+            {!driverStatus.vbCableReady && (
+              <div>• VB-Cable: install from vb-audio.com/Cable then restart PhoneBridge.</div>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -591,8 +619,30 @@ export default function Dashboard({ state, settings, videoRef, onSwitchCamera, o
         }}>
           <span style={{ fontSize: 13, color: C.t3 }}>Live Feed</span>
           <div style={{ flex: 1 }} />
+          {/* Driver status badges — always visible */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <div style={{
+              display: 'flex', alignItems: 'center', gap: 4, fontSize: 10, fontWeight: 600,
+              padding: '2px 8px', borderRadius: 12,
+              background: state.driverStatus.softcamReady ? C.greenBg : C.surface3,
+              color: state.driverStatus.softcamReady ? C.green : C.t4,
+              border: `1px solid ${state.driverStatus.softcamReady ? C.green + '40' : C.border}`,
+            }}>
+              <span>📷</span> CAM
+            </div>
+            <div style={{
+              display: 'flex', alignItems: 'center', gap: 4, fontSize: 10, fontWeight: 600,
+              padding: '2px 8px', borderRadius: 12,
+              background: state.driverStatus.vbCableReady ? C.greenBg : C.surface3,
+              color: state.driverStatus.vbCableReady ? C.green : C.t4,
+              border: `1px solid ${state.driverStatus.vbCableReady ? C.green + '40' : C.border}`,
+            }}>
+              <span>🎙</span> MIC
+            </div>
+          </div>
           {isConnected && (
             <>
+              <div style={{ width: 1, height: 20, background: C.border }} />
               <div style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11, color: C.t3 }}>
                 <div style={{ width: 5, height: 5, borderRadius: '50%', background: C.green, boxShadow: `0 0 4px ${C.green}` }} />
                 Streaming
@@ -687,7 +737,7 @@ export default function Dashboard({ state, settings, videoRef, onSwitchCamera, o
           {/* Tab content */}
           <div style={{ flex: 1, overflow: 'auto', padding: '10px 12px' }}>
             {bottomTab === 'sensors' && <SensorsTab sensorData={state.sensorData} />}
-            {bottomTab === 'settings' && <SettingsTab settings={settings} onChange={onSettingsChange} />}
+            {bottomTab === 'settings' && <SettingsTab settings={settings} onChange={onSettingsChange} driverStatus={state.driverStatus} />}
             {bottomTab === 'api' && <APITab ip={state.ip} />}
           </div>
         </div>

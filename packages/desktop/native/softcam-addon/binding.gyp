@@ -12,11 +12,6 @@
       "dependencies": [
         "<!(node -p \"require('node-addon-api').gyp\")"
       ],
-      "libraries": [
-        "-lole32",
-        "-loleaut32",
-        "-lstrmiids"
-      ],
       "defines": [
         "NAPI_DISABLE_CPP_EXCEPTIONS"
       ],
@@ -31,7 +26,19 @@
           "libraries": [
             "-lole32",
             "-loleaut32",
-            "-lstrmiids"
+            "-lstrmiids",
+            "-lAdvapi32"
+          ],
+          "sources": [
+            "src/softcam_addon.cpp"
+          ],
+          "conditions": [
+            ["'<!(node -p \"require('fs').existsSync('deps/softcam/src/softcam.cpp') ? 1 : 0\")'=='1'", {
+              "sources": [
+                "src/softcam_addon.cpp",
+                "deps/softcam/src/softcam.cpp"
+              ]
+            }]
           ]
         }]
       ]
