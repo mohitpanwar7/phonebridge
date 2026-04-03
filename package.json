@@ -1,0 +1,14 @@
+{
+  "name": "phonebridge",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Bridge your phone's hardware to your PC — cameras, mics, speakers, and every sensor.",
+  "scripts": {
+    "desktop:dev": "pnpm --filter @phonebridge/desktop dev",
+    "desktop:build": "pnpm --filter @phonebridge/desktop build",
+    "mobile:start": "pnpm --filter @phonebridge/mobile start",
+    "mobile:android": "pnpm --filter @phonebridge/mobile android",
+    "mobile:ios": "pnpm --filter @phonebridge/mobile ios",
+    "shared:build": "pnpm --filter @phonebridge/shared build"
+  }
+}

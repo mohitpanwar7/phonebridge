@@ -1,0 +1,17 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "desktop-dev",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["--filter", "@phonebridge/desktop", "dev"],
+      "port": 5173
+    },
+    {
+      "name": "mobile-start",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["--filter", "@phonebridge/mobile", "start"],
+      "port": 8081
+    }
+  ]
+}

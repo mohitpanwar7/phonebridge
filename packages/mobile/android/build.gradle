@@ -1,0 +1,62 @@
+buildscript {
+    ext {
+        buildToolsVersion = "36.1.0"
+        minSdkVersion = 24
+        compileSdkVersion = 36
+        targetSdkVersion = 36
+        ndkVersion = "26.1.10909125"
+        kotlinVersion = "1.9.22"
+    }
+    repositories {
+        google()
+        mavenCentral()
+    }
+    dependencies {
+        classpath("com.android.tools.build:gradle")
+        classpath("com.facebook.react:react-native-gradle-plugin")
+        classpath("org.jetbrains.kotlin:kotlin-gradle-plugin")
+    }
+}
+
+apply plugin: "com.facebook.react.rootproject"
+
+// Redirect expo-modules-core build to a short path to avoid Windows MAX_PATH (260 chars) issues
+// The pnpm store path is too long for the CMake/ninja .cxx directory
+allprojects {
+    if (project.name == 'expo-modules-core') {
+        buildDir = new File('C:/xb')
+    }
+}
+
+// Work around Gradle snapshot failures with NDK hardlinked .so files on Windows.
+// CMake/NDK creates hardlinks for libc++_shared.so which Gradle cannot snapshot.
+// Fix: mark all native-related tasks as untracked, and replace hardlinked .so files
+// with real copies after each CMake build step.
+gradle.taskGraph.whenReady {
+    gradle.taskGraph.allTasks.each { task ->
+        def n = task.name
+        if (n.startsWith('buildCMake') ||
+            n.contains('ergeNativeLibs') ||
+            n.contains('tripDebugSymbols') ||
+            n.contains('onfigureNdkBuild') ||
+            n.contains('xternalNativeBuild')) {
+            task.doNotTrackState("NDK hardlinks incompatible with Gradle snapshot on Windows")
+        }
+        // After each CMake build, replace hardlinked .so with real file copies
+        if (n.startsWith('buildCMake')) {
+            task.doLast {
+                def buildDir = task.project.buildDir
+                def cxxDir = new File(buildDir, 'intermediates/cxx')
+                if (cxxDir.exists()) {
+                    cxxDir.eachFileRecurse(groovy.io.FileType.FILES) { File f ->
+                        if (f.name.endsWith('.so')) {
+                            def bytes = f.bytes
+                            f.delete()
+                            f.bytes = bytes
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

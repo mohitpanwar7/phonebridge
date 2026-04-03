@@ -1,0 +1,40 @@
+node_modules/
+dist/
+build/
+.env
+.env.local
+*.log
+
+# Electron
+packages/desktop/out/
+packages/desktop/release/
+
+# React Native
+packages/mobile/android/local.properties
+packages/mobile/android/.gradle/
+packages/mobile/android/app/build/
+packages/mobile/android/build/
+packages/mobile/ios/Pods/
+packages/mobile/ios/build/
+*.apk
+*.aab
+*.ipa
+
+# Native addons
+packages/desktop/native/**/build/
+packages/desktop/native/**/prebuilds/
+*.node
+*.obj
+*.lib
+*.exp
+*.pdb
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
