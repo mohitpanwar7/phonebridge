@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    apduservice.xml
+
+    AID routing configuration for PhoneBridgeHCEService.
+
+    This file is referenced by the <service> declaration in AndroidManifest.xml:
+
+        <service
+            android:name=".nfc.PhoneBridgeHCEService"
+            android:exported="true"
+            android:permission="android.permission.BIND_NFC_SERVICE">
+            <intent-filter>
+                <action android:name="android.nfc.cardemulation.action.HOST_APDU_SERVICE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.nfc.cardemulation.host_apdu_service"
+                android:resource="@xml/apduservice" />
+        </service>
+
+    AID D2760000850101 is the NFC Forum Type 4 Tag Application AID.
+    Category "other" allows this AID to be selected without requiring the
+    user to set this app as the default payment handler.
+-->
+<host-apdu-service
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    android:description="@string/app_name"
+    android:requireDeviceUnlock="false">
+
+    <aid-group
+        android:description="@string/app_name"
+        android:category="other">
+
+        <!-- NFC Forum Type 4 Tag Application AID -->
+        <aid-filter android:name="D2760000850101" />
+
+    </aid-group>
+
+</host-apdu-service>

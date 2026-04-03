@@ -364,6 +364,206 @@ function SettingsTab({
   );
 }
 
+// ─── NFC TAB ─────────────────────────────────────────────────────────────────
+
+import type { NFCTag, NFCNdefRecord } from '@phonebridge/shared';
+
+function NFCTagRow({ tag, onStartScan, onReplay }: {
+  tag: NFCTag;
+  onStartScan: () => void;
+  onReplay: (tag: NFCTag) => void;
+}) {
+  const [expanded, setExpanded] = React.useState(false);
+  return (
+    <div style={{ borderBottom: `1px solid ${C.border}`, padding: '10px 0' }}>
+      <div
+        style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }}
+        onClick={() => setExpanded((e) => !e)}
+      >
+        <div style={{
+          fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 8,
+          background: C.accentBg, color: C.accentL, border: `1px solid ${C.accentL}30`,
+        }}>{tag.tagType}</div>
+        <div style={{ flex: 1 }}>
+          <div style={{ fontSize: 13, fontWeight: 600, color: C.t1 }}>{tag.name}</div>
+          <div style={{ fontSize: 11, color: C.t4, fontFamily: C.mono }}>{tag.uid}</div>
+        </div>
+        {tag.canEmulate && (
+          <button onClick={(e) => { e.stopPropagation(); onReplay(tag); }} style={{
+            fontSize: 11, padding: '3px 10px', borderRadius: 6, border: 'none', cursor: 'pointer',
+            background: C.accentBg, color: C.accentL,
+          }}>Replay</button>
+        )}
+        <span style={{ color: C.t4, fontSize: 12 }}>{expanded ? '▲' : '▼'}</span>
+      </div>
+      {expanded && (
+        <div style={{ marginTop: 8, padding: '8px 12px', background: C.bg, borderRadius: 6 }}>
+          {tag.ndefRecords?.map((r, i) => (
+            <div key={i} style={{ fontSize: 11, color: C.t2, fontFamily: C.mono, marginBottom: 4 }}>
+              [{r.type}] {r.uri ?? r.payload}
+            </div>
+          ))}
+          {tag.mifareData && (
+            <div style={{ fontSize: 11, color: C.t3 }}>
+              MIFARE: {tag.mifareData.sectorCount} sectors
+            </div>
+          )}
+          {tag.rawData && (
+            <div style={{ fontSize: 11, color: C.t3, fontFamily: C.mono }}>{tag.rawData}</div>
+          )}
+          <div style={{ fontSize: 10, color: C.t4, marginTop: 4 }}>
+            Saved: {new Date(tag.savedAt).toLocaleString()}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function NFCTab() {
+  const [tags, setTags] = React.useState<NFCTag[]>([]);
+  const [lastScanned, setLastScanned] = React.useState<NFCTag | null>(null);
+  const [scanning, setScanning] = React.useState(false);
+  const [replayStatus, setReplayStatus] = React.useState<{ active: boolean; tagName?: string }>({ active: false });
+  const [writeText, setWriteText] = React.useState('');
+  const [writeResult, setWriteResult] = React.useState<{ ok: boolean; msg: string } | null>(null);
+
+  const bridge = (window as any).phoneBridge;
+
+  React.useEffect(() => {
+    bridge?.nfcGetTags().then((t: NFCTag[]) => setTags(t ?? []));
+    bridge?.onNFCTagScanned?.((tag: NFCTag) => {
+      setLastScanned(tag);
+      setTags((prev) => {
+        const exists = prev.find((t) => t.id === tag.id);
+        return exists ? prev : [tag, ...prev];
+      });
+      setScanning(false);
+    });
+    bridge?.onNFCSavedTags?.((t: NFCTag[]) => setTags(t ?? []));
+    bridge?.onNFCWriteResult?.((r: { success: boolean; error?: string }) => {
+      setWriteResult({ ok: r.success, msg: r.success ? 'Written!' : r.error ?? 'Failed' });
+    });
+    bridge?.onNFCReplayStatus?.((s: { active: boolean; tagName?: string }) => setReplayStatus(s));
+  }, []);
+
+  const startScan = () => {
+    bridge?.nfcSendCommand({ cmd: 'nfcStartScan' });
+    setScanning(true);
+  };
+  const stopScan = () => {
+    bridge?.nfcSendCommand({ cmd: 'nfcStopScan' });
+    setScanning(false);
+  };
+  const writeNdef = () => {
+    if (!writeText.trim()) return;
+    const record: NFCNdefRecord = { tnf: 1, type: 'T', payload: writeText.trim(), languageCode: 'en' };
+    bridge?.nfcSendCommand({ cmd: 'nfcWrite', records: [record] });
+    setWriteResult(null);
+  };
+  const startReplay = (tag: NFCTag) => {
+    bridge?.nfcSendCommand({ cmd: 'nfcReplay', tagId: tag.id });
+  };
+  const stopReplay = () => {
+    bridge?.nfcSendCommand({ cmd: 'nfcStopReplay' });
+  };
+
+  return (
+    <div style={{ padding: '4px 8px', overflowY: 'auto', maxHeight: '100%' }}>
+      {/* Scan control */}
+      <SectionHeader icon="📡" title="Live Scan" />
+      <div style={card({ padding: '10px 14px', marginBottom: 8 })}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: lastScanned ? 10 : 0 }}>
+          {!scanning ? (
+            <button onClick={startScan} style={{
+              background: C.accent, color: '#fff', border: 'none', borderRadius: 6,
+              padding: '7px 16px', fontSize: 12, fontWeight: 600, cursor: 'pointer',
+            }}>Start Scan on Phone</button>
+          ) : (
+            <button onClick={stopScan} style={{
+              background: C.surface3, color: C.t2, border: `1px solid ${C.border}`, borderRadius: 6,
+              padding: '7px 16px', fontSize: 12, fontWeight: 600, cursor: 'pointer',
+            }}>Stop Scan</button>
+          )}
+          {scanning && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: C.accentL }}>
+              <div style={{ width: 6, height: 6, borderRadius: '50%', background: C.accentL, boxShadow: `0 0 4px ${C.accentL}` }} />
+              Waiting for tag…
+            </div>
+          )}
+        </div>
+        {lastScanned && (
+          <div style={{ fontSize: 12, color: C.t2, background: C.bg, borderRadius: 6, padding: '8px 10px' }}>
+            <span style={{ color: C.green }}>✓</span> Last scanned: <strong style={{ color: C.t1 }}>{lastScanned.name}</strong>
+            <span style={{ color: C.t4, marginLeft: 8 }}>{lastScanned.uid}</span>
+          </div>
+        )}
+      </div>
+
+      {/* HCE Replay status */}
+      {replayStatus.active && (
+        <>
+          <SectionHeader icon="▶" title="Replay Active" />
+          <div style={card({ padding: '10px 14px', background: C.greenBg, border: `1px solid ${C.green}40`, marginBottom: 8 })}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <div>
+                <div style={{ fontSize: 12, fontWeight: 600, color: C.green }}>Emulating: {replayStatus.tagName}</div>
+                <div style={{ fontSize: 11, color: C.t3, marginTop: 2 }}>Hold phone near NFC reader</div>
+              </div>
+              <button onClick={stopReplay} style={{
+                background: C.redBg, color: C.red, border: `1px solid ${C.red}40`,
+                borderRadius: 6, padding: '5px 12px', fontSize: 12, cursor: 'pointer',
+              }}>Stop</button>
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* Write NDEF */}
+      <SectionHeader icon="✍" title="Write to Tag" />
+      <div style={card({ padding: '10px 14px', marginBottom: 8 })}>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <input
+            value={writeText}
+            onChange={(e) => setWriteText(e.target.value)}
+            placeholder="Text or URL to write…"
+            style={{
+              flex: 1, background: C.bg, border: `1px solid ${C.border}`,
+              borderRadius: 6, padding: '7px 10px', color: C.t1, fontSize: 12, outline: 'none',
+            }}
+          />
+          <button onClick={writeNdef} style={{
+            background: C.accent, color: '#fff', border: 'none', borderRadius: 6,
+            padding: '7px 14px', fontSize: 12, fontWeight: 600, cursor: 'pointer',
+          }}>Write</button>
+        </div>
+        {writeResult && (
+          <div style={{ marginTop: 8, fontSize: 12, color: writeResult.ok ? C.green : C.red }}>
+            {writeResult.ok ? '✓ ' : '✗ '}{writeResult.msg}
+          </div>
+        )}
+        <div style={{ fontSize: 11, color: C.t4, marginTop: 6 }}>
+          Tap "Write" then hold phone near a writable NFC tag.
+        </div>
+      </div>
+
+      {/* Saved tags list */}
+      <SectionHeader icon="🏷" title={`Saved Tags (${tags.length})`} />
+      <div style={card({ padding: '4px 14px', marginBottom: 8 })}>
+        {tags.length === 0 ? (
+          <div style={{ padding: '12px 0', fontSize: 12, color: C.t4, textAlign: 'center' }}>
+            No tags yet — scan your first NFC tag on the phone.
+          </div>
+        ) : (
+          tags.map((tag) => (
+            <NFCTagRow key={tag.id} tag={tag} onStartScan={startScan} onReplay={startReplay} />
+          ))
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ─── API TAB ─────────────────────────────────────────────────────────────────
 
 function APITab({ ip }: { ip: string }) {
@@ -448,7 +648,7 @@ interface Props {
   onSettingsChange: (s: AppSettings) => void;
 }
 
-type BottomTab = 'sensors' | 'settings' | 'api';
+type BottomTab = 'sensors' | 'settings' | 'api' | 'nfc';
 
 export default function Dashboard({ state, settings, videoRef, onSwitchCamera, onSwitchMic, onSettingsChange }: Props) {
   const [bottomTab, setBottomTab] = useState<BottomTab>('sensors');
@@ -730,6 +930,7 @@ export default function Dashboard({ state, settings, videoRef, onSwitchCamera, o
             padding: '0 12px', gap: 4, borderBottom: `1px solid ${C.border}`, flexShrink: 0,
           }}>
             {tabBtn('sensors', '📊', 'Sensors', sensorCount)}
+            {tabBtn('nfc', '📡', 'NFC')}
             {tabBtn('settings', '⚙️', 'Settings')}
             {tabBtn('api', '🔗', 'API')}
           </div>
@@ -737,6 +938,7 @@ export default function Dashboard({ state, settings, videoRef, onSwitchCamera, o
           {/* Tab content */}
           <div style={{ flex: 1, overflow: 'auto', padding: '10px 12px' }}>
             {bottomTab === 'sensors' && <SensorsTab sensorData={state.sensorData} />}
+            {bottomTab === 'nfc' && <NFCTab />}
             {bottomTab === 'settings' && <SettingsTab settings={settings} onChange={onSettingsChange} driverStatus={state.driverStatus} />}
             {bottomTab === 'api' && <APITab ip={state.ip} />}
           </div>

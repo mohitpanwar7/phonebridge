@@ -10,6 +10,7 @@ import { VirtualCamera } from './VirtualCamera';
 import { VirtualMicrophone } from './VirtualMicrophone';
 import { VBCableDetector } from './VBCableDetector';
 import { SoftcamInstaller } from './SoftcamInstaller';
+import { NFCStore } from './NFCStore';
 import {
   SIGNALING_PORT,
   REST_API_PORT,
@@ -27,6 +28,7 @@ let virtualCamera: VirtualCamera;
 let virtualMic: VirtualMicrophone;
 let vbCableDetector: VBCableDetector;
 let softcamInstaller: SoftcamInstaller;
+let nfcStore: NFCStore;
 let cachedInitData: unknown = null;
 
 // Track driver status for renderer
@@ -69,6 +71,7 @@ function createWindow() {
 
 async function startServices() {
   sensorStore       = new SensorStore();
+  nfcStore          = new NFCStore();
   virtualCamera     = new VirtualCamera();
   virtualMic        = new VirtualMicrophone();
   vbCableDetector   = new VBCableDetector();
@@ -76,7 +79,7 @@ async function startServices() {
 
   signalingServer = new SignalingServer(SIGNALING_PORT, sensorStore, (event, data) => {
     mainWindow?.webContents.send(event, data);
-  });
+  }, nfcStore);
   signalingServer.start();
 
   mdnsAdvertiser = new MDNSAdvertiser(SIGNALING_PORT);
@@ -185,6 +188,15 @@ ipcMain.on('send-audio-frame', (_event, frameBuffer: Buffer) => {
 
 // Driver status query from renderer
 ipcMain.handle('get-driver-status', () => ({ softcamReady, vbCableReady }));
+
+// ── NFC IPC ────────────────────────────────────────────────────────────────
+ipcMain.handle('nfc-get-tags', () => nfcStore?.getAllTags() ?? []);
+ipcMain.handle('nfc-get-last-scanned', () => nfcStore?.getLastScanned() ?? null);
+
+// Commands to phone (start scan, write, replay, etc.)
+ipcMain.handle('nfc-send-command', (_event, cmd: object) => {
+  signalingServer?.sendCommand(cmd as any);
+});
 
 // ─────────────────────────────────────────────────────────────────────────────
 

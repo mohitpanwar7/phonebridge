@@ -6,6 +6,7 @@ import type {
   DesktopToPhoneCommand,
 } from '@phonebridge/shared';
 import { SensorStore } from './SensorStore';
+import { NFCStore } from './NFCStore';
 
 export class SignalingServer {
   private wss: WebSocketServer | null = null;
@@ -15,7 +16,8 @@ export class SignalingServer {
   constructor(
     private port: number,
     private sensorStore: SensorStore,
-    private emitToRenderer: (event: string, data: unknown) => void
+    private emitToRenderer: (event: string, data: unknown) => void,
+    private nfcStore?: NFCStore,
   ) {
     this.sessionId = uuidv4();
   }
@@ -80,6 +82,24 @@ export class SignalingServer {
 
         case 'status':
           this.emitToRenderer('phone-status', msg);
+          break;
+
+        case 'nfcTagScanned':
+          this.nfcStore?.upsertTag(msg.tag);
+          this.emitToRenderer('nfc-tag-scanned', msg.tag);
+          break;
+
+        case 'nfcSavedTags':
+          this.nfcStore?.syncTags(msg.tags);
+          this.emitToRenderer('nfc-saved-tags', msg.tags);
+          break;
+
+        case 'nfcWriteResult':
+          this.emitToRenderer('nfc-write-result', { success: msg.success, error: msg.error });
+          break;
+
+        case 'nfcReplayStatus':
+          this.emitToRenderer('nfc-replay-status', { active: msg.active, tagId: msg.tagId, tagName: msg.tagName });
           break;
       }
     }

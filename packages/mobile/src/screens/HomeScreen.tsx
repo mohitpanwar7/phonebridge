@@ -241,6 +241,20 @@ export default function HomeScreen({ navigation }: Props) {
         )}
       </View>
 
+      {/* NFC entry point */}
+      <TouchableOpacity
+        style={styles.nfcCard}
+        onPress={() => navigation.navigate('NFC')}
+        activeOpacity={0.75}
+      >
+        <View style={styles.nfcCardIcon}><Text style={{ fontSize: 22 }}>📡</Text></View>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.nfcCardTitle}>NFC Tags</Text>
+          <Text style={styles.nfcCardSubtitle}>Read, write, save & replay NFC tags</Text>
+        </View>
+        <Text style={{ color: '#a78bfa', fontSize: 18 }}>→</Text>
+      </TouchableOpacity>
+
       <View style={styles.footer}>
         <Text style={styles.footerText}>Make sure your phone and PC are on the same WiFi network</Text>
       </View>
@@ -318,6 +332,17 @@ const styles = StyleSheet.create({
     paddingVertical: 12, borderRadius: 8,
   },
   connectBtnText: { color: '#fff', fontWeight: '700', fontSize: 14 },
+  nfcCard: {
+    flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 16,
+    padding: 14, backgroundColor: '#18181b',
+    borderRadius: 12, borderWidth: 1, borderColor: 'rgba(124,58,237,0.3)',
+  },
+  nfcCardIcon: {
+    width: 40, height: 40, borderRadius: 10,
+    backgroundColor: 'rgba(124,58,237,0.15)', alignItems: 'center', justifyContent: 'center',
+  },
+  nfcCardTitle: { fontSize: 14, fontWeight: '700', color: '#e4e4e7' },
+  nfcCardSubtitle: { fontSize: 12, color: '#71717a', marginTop: 2 },
   footer: { marginTop: 'auto', paddingTop: 24, alignItems: 'center' },
   footerText: { color: '#3f3f46', fontSize: 11, textAlign: 'center' },
 });

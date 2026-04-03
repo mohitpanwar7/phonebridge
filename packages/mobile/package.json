@@ -27,6 +27,7 @@
     "react-native-screens": "^3.29.0",
     "react-native-vision-camera": "^4.0.0",
     "react-native-webrtc": "^118.0.7",
+    "react-native-nfc-manager": "^3.14.14",
     "react-native-zeroconf": "^0.13.0"
   },
   "devDependencies": {

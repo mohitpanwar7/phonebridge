@@ -5,12 +5,14 @@ import HomeScreen from './screens/HomeScreen';
 import StreamScreen from './screens/StreamScreen';
 import SettingsScreen from './screens/SettingsScreen';
 import OnboardingScreen from './screens/OnboardingScreen';
+import NFCScreen from './screens/NFCScreen';
 
 export type RootStackParamList = {
   Onboarding: undefined;
   Home: undefined;
   Stream: { ip: string; port: number; sessionId?: string };
   Settings: undefined;
+  NFC: undefined;
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -62,6 +64,11 @@ export default function App() {
           name="Settings"
           component={SettingsScreen}
           options={{ title: 'Settings' }}
+        />
+        <Stack.Screen
+          name="NFC"
+          component={NFCScreen}
+          options={{ title: 'NFC Tags' }}
         />
       </Stack.Navigator>
     </NavigationContainer>

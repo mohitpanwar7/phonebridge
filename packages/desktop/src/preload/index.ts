@@ -54,4 +54,21 @@ contextBridge.exposeInMainWorld('phoneBridge', {
   onDriverStatus: (callback: (status: { softcamReady: boolean; vbCableReady: boolean }) => void) => {
     ipcRenderer.on('driver-status', (_event, status) => callback(status));
   },
+
+  // NFC
+  nfcGetTags: () => ipcRenderer.invoke('nfc-get-tags'),
+  nfcGetLastScanned: () => ipcRenderer.invoke('nfc-get-last-scanned'),
+  nfcSendCommand: (cmd: unknown) => ipcRenderer.invoke('nfc-send-command', cmd),
+  onNFCTagScanned: (callback: (tag: unknown) => void) => {
+    ipcRenderer.on('nfc-tag-scanned', (_event, tag) => callback(tag));
+  },
+  onNFCSavedTags: (callback: (tags: unknown[]) => void) => {
+    ipcRenderer.on('nfc-saved-tags', (_event, tags) => callback(tags));
+  },
+  onNFCWriteResult: (callback: (result: { success: boolean; error?: string }) => void) => {
+    ipcRenderer.on('nfc-write-result', (_event, result) => callback(result));
+  },
+  onNFCReplayStatus: (callback: (status: { active: boolean; tagId?: string; tagName?: string }) => void) => {
+    ipcRenderer.on('nfc-replay-status', (_event, status) => callback(status));
+  },
 });

@@ -109,6 +109,48 @@ export interface SensorReading<T extends SensorData = SensorData> {
   data: T;
 }
 
+// ── NFC ──
+
+export interface NFCNdefRecord {
+  tnf: number;              // Type Name Format (0=Empty,1=Well-known,2=MIME,3=Absolute-URI,4=External,5=Unknown)
+  type: string;             // e.g. 'T' (text), 'U' (uri), 'Sp' (smart poster)
+  payload: string;          // decoded text or hex bytes
+  languageCode?: string;    // for text records
+  uri?: string;             // for URI records (decoded)
+}
+
+export interface MifareDump {
+  sectorCount: number;
+  sectors: Record<number, Record<number, string>>; // sector → block → hex string
+  keyA?: string;
+  keyB?: string;
+}
+
+export type NFCTagType =
+  | 'MifareClassic'
+  | 'MifareUltralight'
+  | 'Ndef'
+  | 'IsoDep'
+  | 'NfcA'
+  | 'NfcB'
+  | 'NfcF'
+  | 'NfcV'
+  | 'Unknown';
+
+export interface NFCTag {
+  id: string;               // internal ID: `${timestamp}_${uid}`
+  uid: string;              // hardware UID as hex string (e.g. "04:AB:CD:EF")
+  name: string;             // user-given label
+  tagType: NFCTagType;
+  technologies: string[];   // android.nfc.tech.* list
+  savedAt: number;          // Unix timestamp ms
+  ndefRecords?: NFCNdefRecord[];
+  mifareData?: MifareDump;
+  rawData?: string;         // hex string of raw bytes for unknown tags
+  notes?: string;
+  canEmulate: boolean;      // true if HCE replay is possible (NDEF/IsoDep only)
+}
+
 // ── Settings ──
 
 export interface StreamSettings {
