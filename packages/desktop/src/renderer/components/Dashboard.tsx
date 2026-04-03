@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import type { AppState, AppSettings } from '../App';
+import { NotificationPanel, type AppNotification } from './NotificationPanel';
 
 // ─── Design tokens ──────────────────────────────────────────────────────────
 const C = {
@@ -165,7 +166,162 @@ function SectionHeader({ icon, title }: { icon: string; title: string }) {
   );
 }
 
+// ─── STATS OVERLAY ───────────────────────────────────────────────────────────
+
+interface StreamStats {
+  fps: number;
+  bitrateKbps: number;
+  resolutionW: number;
+  resolutionH: number;
+}
+
+function StatsOverlay({ videoRef, visible }: { videoRef: React.RefObject<HTMLVideoElement>; visible: boolean }) {
+  const [stats, setStats] = useState<StreamStats>({ fps: 0, bitrateKbps: 0, resolutionW: 0, resolutionH: 0 });
+  const frameCountRef = useRef(0);
+  const lastFpsTimeRef = useRef(performance.now());
+  const rafRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    if (!visible) { if (rafRef.current) cancelAnimationFrame(rafRef.current); return; }
+
+    let prevTimestamp = 0;
+    const measure = (timestamp: number) => {
+      const video = videoRef.current;
+      if (video && video.readyState >= 2) {
+        frameCountRef.current++;
+        const now = performance.now();
+        const elapsed = now - lastFpsTimeRef.current;
+        if (elapsed >= 1000) {
+          const fps = Math.round((frameCountRef.current * 1000) / elapsed);
+          const w = video.videoWidth;
+          const h = video.videoHeight;
+          // Estimate bitrate from video element if available
+          const bitrateKbps = 0; // will be updated via RTCStatsReport in useWebRTC
+          setStats({ fps, bitrateKbps, resolutionW: w, resolutionH: h });
+          frameCountRef.current = 0;
+          lastFpsTimeRef.current = now;
+        }
+      }
+      rafRef.current = requestAnimationFrame(measure);
+    };
+    rafRef.current = requestAnimationFrame(measure);
+    return () => { if (rafRef.current) cancelAnimationFrame(rafRef.current); };
+  }, [visible, videoRef]);
+
+  if (!visible) return null;
+
+  return (
+    <div style={{
+      position: 'absolute', top: 12, right: 12,
+      background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(6px)',
+      borderRadius: 8, padding: '6px 10px',
+      fontSize: 11, fontFamily: C.mono, color: C.accentL,
+      display: 'flex', flexDirection: 'column', gap: 2,
+      lineHeight: 1.5,
+    }}>
+      <div>{stats.fps} fps</div>
+      {stats.resolutionW > 0 && <div>{stats.resolutionW}×{stats.resolutionH}</div>}
+    </div>
+  );
+}
+
+// ─── VU METER ────────────────────────────────────────────────────────────────
+
+function VUMeter({ stream }: { stream: MediaStream | null }) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const rafRef = useRef<number | null>(null);
+  const analyserRef = useRef<AnalyserNode | null>(null);
+  const ctxRef = useRef<AudioContext | null>(null);
+
+  useEffect(() => {
+    if (!stream || stream.getAudioTracks().length === 0) return;
+    const audioCtx = new AudioContext();
+    ctxRef.current = audioCtx;
+    const analyser = audioCtx.createAnalyser();
+    analyser.fftSize = 256;
+    analyserRef.current = analyser;
+    const src = audioCtx.createMediaStreamSource(stream);
+    src.connect(analyser);
+    const buf = new Uint8Array(analyser.frequencyBinCount);
+
+    const draw = () => {
+      const canvas = canvasRef.current;
+      const ctx2d = canvas?.getContext('2d');
+      if (!canvas || !ctx2d) { rafRef.current = requestAnimationFrame(draw); return; }
+      analyser.getByteFrequencyData(buf);
+      const avg = buf.reduce((a, b) => a + b, 0) / buf.length;
+      const level = avg / 255;
+      ctx2d.clearRect(0, 0, canvas.width, canvas.height);
+      const grad = ctx2d.createLinearGradient(0, canvas.height, 0, 0);
+      grad.addColorStop(0, '#22c55e');
+      grad.addColorStop(0.7, '#f59e0b');
+      grad.addColorStop(1, '#ef4444');
+      ctx2d.fillStyle = grad;
+      ctx2d.fillRect(0, canvas.height * (1 - level), canvas.width, canvas.height * level);
+      rafRef.current = requestAnimationFrame(draw);
+    };
+    rafRef.current = requestAnimationFrame(draw);
+    return () => {
+      if (rafRef.current) cancelAnimationFrame(rafRef.current);
+      audioCtx.close().catch(() => {});
+    };
+  }, [stream]);
+
+  return (
+    <canvas
+      ref={canvasRef}
+      width={8}
+      height={80}
+      style={{ borderRadius: 4, background: C.surface3 }}
+    />
+  );
+}
+
+// ─── SENSOR SPARKLINE ────────────────────────────────────────────────────────
+
+function Sparkline({ values, color }: { values: number[]; color?: string }) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    const ctx = canvas?.getContext('2d');
+    if (!canvas || !ctx || values.length < 2) return;
+    const w = canvas.width;
+    const h = canvas.height;
+    ctx.clearRect(0, 0, w, h);
+    const min = Math.min(...values);
+    const max = Math.max(...values);
+    const range = max - min || 1;
+    ctx.beginPath();
+    ctx.strokeStyle = color ?? C.accentL;
+    ctx.lineWidth = 1.5;
+    ctx.lineJoin = 'round';
+    values.forEach((v, i) => {
+      const x = (i / (values.length - 1)) * w;
+      const y = h - ((v - min) / range) * h;
+      i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+    });
+    ctx.stroke();
+  }, [values, color]);
+  return <canvas ref={canvasRef} width={80} height={24} style={{ display: 'block' }} />;
+}
+
 // ─── SENSORS TAB ─────────────────────────────────────────────────────────────
+
+function extractNumericValue(sensor: string, data: any): number | null {
+  if (!data) return null;
+  switch (sensor) {
+    case 'accelerometer':
+    case 'gyroscope':
+    case 'magnetometer':
+    case 'gravity': return Math.sqrt((data.x ?? 0) ** 2 + (data.y ?? 0) ** 2 + (data.z ?? 0) ** 2);
+    case 'barometer': return data.pressure ?? null;
+    case 'light': return data.illuminance ?? null;
+    case 'pedometer': return data.steps ?? null;
+    case 'battery': return (data.level ?? 0) * 100;
+    case 'gps': return data.speed ?? null;
+    default: return null;
+  }
+}
 
 const SENSOR_ICONS: Record<string, string> = {
   gps: '📍', accelerometer: '↗', gyroscope: '🌀',
@@ -193,15 +349,43 @@ function formatSensor(sensor: string, data: any): string {
 }
 
 function SensorsTab({ sensorData }: { sensorData: Record<string, { data: any; timestamp: number }> }) {
+  const bridge = (window as any).phoneBridge;
+
+  const exportCSV = () => bridge?.exportSensorsCSV?.();
+  const exportJSON = () => bridge?.exportSensorsJSON?.();
+
+  // Keep a rolling 30-point history for sparklines
+  const historyRef = useRef<Record<string, number[]>>({});
+  Object.entries(sensorData).forEach(([sensor, entry]) => {
+    if (!historyRef.current[sensor]) historyRef.current[sensor] = [];
+    const numeric = extractNumericValue(sensor, entry.data);
+    if (numeric !== null) {
+      historyRef.current[sensor].push(numeric);
+      if (historyRef.current[sensor].length > 30) historyRef.current[sensor].shift();
+    }
+  });
+
   const entries = Object.entries(sensorData);
-  if (entries.length === 0) {
-    return (
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: C.t4, fontSize: 13 }}>
+
+  const exportBtnStyle: React.CSSProperties = {
+    background: C.surface3, border: `1px solid ${C.border}`,
+    borderRadius: 6, color: C.t2, padding: '5px 12px', fontSize: 12, cursor: 'pointer',
+  };
+
+  return (
+    <div>
+      {/* Export toolbar */}
+      <div style={{ display: 'flex', gap: 8, marginBottom: 10, alignItems: 'center' }}>
+        <span style={{ fontSize: 11, color: C.t4, marginRight: 4 }}>Export:</span>
+        <button style={exportBtnStyle} onClick={exportCSV}>CSV</button>
+        <button style={exportBtnStyle} onClick={exportJSON}>JSON</button>
+        <span style={{ fontSize: 11, color: C.t4, marginLeft: 8 }}>{entries.length} sensor{entries.length !== 1 ? 's' : ''}</span>
+      </div>
+    {entries.length === 0 ? (
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 80, color: C.t4, fontSize: 13 }}>
         No sensor data yet
       </div>
-    );
-  }
-  return (
+    ) : (
     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 8, padding: 4 }}>
       {entries.map(([sensor, entry]) => (
         <div key={sensor} style={{
@@ -218,11 +402,19 @@ function SensorsTab({ sensorData }: { sensorData: Record<string, { data: any; ti
           <div style={{ fontFamily: C.mono, fontSize: 12, color: C.t1, wordBreak: 'break-all' }}>
             {formatSensor(sensor, entry.data)}
           </div>
+          {/* Sparkline */}
+          {(historyRef.current[sensor]?.length ?? 0) >= 2 && (
+            <div style={{ marginTop: 6 }}>
+              <Sparkline values={historyRef.current[sensor]} />
+            </div>
+          )}
           <div style={{ fontSize: 10, color: C.t4, marginTop: 4 }}>
             {new Date(entry.timestamp).toLocaleTimeString()}
           </div>
         </div>
       ))}
+    </div>
+    )}
     </div>
   );
 }
@@ -252,10 +444,24 @@ function SettingsTab({
   settings,
   onChange,
   driverStatus,
+  sysAudioActive,
+  gainValue,
+  noiseGateThreshold,
+  onStartSystemAudio,
+  onStopSystemAudio,
+  onSetGain,
+  onSetNoiseGate,
 }: {
   settings: AppSettings;
   onChange: (s: AppSettings) => void;
   driverStatus: { softcamReady: boolean; vbCableReady: boolean };
+  sysAudioActive: boolean;
+  gainValue: number;
+  noiseGateThreshold: number;
+  onStartSystemAudio?: () => Promise<void>;
+  onStopSystemAudio?: () => void;
+  onSetGain?: (v: number) => void;
+  onSetNoiseGate?: (v: number) => void;
 }) {
   const setVideo = (patch: Partial<AppSettings['video']>) =>
     onChange({ ...settings, video: { ...settings.video, ...patch } });
@@ -324,6 +530,51 @@ function SettingsTab({
         <SettingRow label="PC → Phone Speaker">
           <Select value={settings.audio.speakerOutput} onChange={(v) => setAudio({ speakerOutput: v })}
             options={[{ v: 'disabled', label: 'Disabled' }, { v: 'vbcable', label: 'VB-Cable (install required)' }]} />
+        </SettingRow>
+      </div>
+
+      <SectionHeader icon="🔊" title="PC Audio → Phone" />
+      <div style={card({ padding: '6px 14px', marginBottom: 8 })}>
+        <SettingRow label="System Audio">
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ fontSize: 11, color: sysAudioActive ? C.green : C.t4 }}>
+              {sysAudioActive ? 'Active' : 'Off'}
+            </span>
+            <button
+              onClick={async () => {
+                if (sysAudioActive) { onStopSystemAudio?.(); }
+                else { await onStartSystemAudio?.(); }
+                // Parent will toggle sysAudioActive via state update
+              }}
+              style={{
+                background: sysAudioActive ? C.redBg : C.accentBg,
+                color: sysAudioActive ? C.red : C.accentL,
+                border: `1px solid ${sysAudioActive ? C.red : C.accentL}40`,
+                borderRadius: 6, padding: '3px 10px', fontSize: 11, cursor: 'pointer',
+              }}>
+              {sysAudioActive ? 'Stop' : 'Start'}
+            </button>
+          </div>
+        </SettingRow>
+        <SettingRow label={`Gain: ${gainValue.toFixed(1)}×`}>
+          <input
+            type="range" min={0} max={3} step={0.1} value={gainValue}
+            onChange={(e) => {
+              const v = parseFloat(e.target.value);
+              onSetGain?.(v);
+            }}
+            style={{ width: 100, accentColor: C.accent }}
+          />
+        </SettingRow>
+        <SettingRow label={`Noise Gate: ${(noiseGateThreshold * 100).toFixed(0)}%`}>
+          <input
+            type="range" min={0} max={0.2} step={0.005} value={noiseGateThreshold}
+            onChange={(e) => {
+              const v = parseFloat(e.target.value);
+              onSetNoiseGate?.(v);
+            }}
+            style={{ width: 100, accentColor: C.accent }}
+          />
         </SettingRow>
       </div>
 
@@ -646,14 +897,56 @@ interface Props {
   onSwitchCamera: (id: string) => void;
   onSwitchMic: (id: string) => void;
   onSettingsChange: (s: AppSettings) => void;
+  onTorch: (enabled: boolean) => void;
+  onZoom: (level: number) => void;
+  onCommand?: (cmd: object) => void; // generic command sender for Phase 6+
+  onStartSystemAudio?: () => Promise<void>;
+  onStopSystemAudio?: () => void;
+  onSetGain?: (value: number) => void;
+  onSetNoiseGate?: (threshold: number) => void;
+  videoEffects?: import('../video/VideoProcessor').VideoEffects;
+  onVideoEffects?: (effects: Partial<import('../video/VideoProcessor').VideoEffects>) => void;
+  onSnapshot?: () => void;
+  notifications?: AppNotification[];
+  onClearNotifications?: () => void;
+  themeMode?: 'dark' | 'light';
+  onThemeToggle?: () => void;
 }
 
 type BottomTab = 'sensors' | 'settings' | 'api' | 'nfc';
 
-export default function Dashboard({ state, settings, videoRef, onSwitchCamera, onSwitchMic, onSettingsChange }: Props) {
+export default function Dashboard({ state, settings, videoRef, onSwitchCamera, onSwitchMic, onSettingsChange, onTorch, onZoom, onCommand, onStartSystemAudio, onStopSystemAudio, onSetGain, onSetNoiseGate, videoEffects, onVideoEffects, onSnapshot, notifications, onClearNotifications, themeMode, onThemeToggle }: Props) {
   const [bottomTab, setBottomTab] = useState<BottomTab>('sensors');
   const [bottomHeight, setBottomHeight] = useState(260);
+  const [torchEnabled, setTorchEnabled] = useState(false);
+  const [zoomLevel, setZoomLevel] = useState(1.0);
+  const [privacyModeActive, setPrivacyModeActive] = useState(false);
+  const [showStats, setShowStats] = useState(false);
+  const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
+  const [gridEnabled, setGridEnabled] = useState(false);
+  const [nightModeEnabled, setNightModeEnabled] = useState(false);
+  const [exposureComp, setExposureCompState] = useState(0);
+  const [lastPhoto, setLastPhoto] = useState<string | null>(null);
+  // Phase 7: audio pipeline
+  const [sysAudioActive, setSysAudioActive] = useState(false);
+  const [gainValue, setGainValue] = useState(1.0);
+  const [noiseGateThreshold, setNoiseGateThresholdState] = useState(0.02);
   const isConnected = state.connectionState !== 'disconnected';
+
+  // Capture remote MediaStream for VU meter from the video element
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+    const obs = new MutationObserver(() => {
+      const ms = (video as any).srcObject as MediaStream | null;
+      setRemoteStream(ms);
+    });
+    obs.observe(video, { attributes: true, attributeFilter: ['src'] });
+    // Also detect via loadedmetadata
+    const onLoaded = () => setRemoteStream((video as any).srcObject as MediaStream | null);
+    video.addEventListener('loadedmetadata', onLoaded);
+    return () => { obs.disconnect(); video.removeEventListener('loadedmetadata', onLoaded); };
+  }, [videoRef]);
   const sensorCount = Object.keys(state.sensorData).length;
 
   const tabBtn = (tab: BottomTab, icon: string, label: string, badge?: number) => (
@@ -697,9 +990,23 @@ export default function Dashboard({ state, settings, videoRef, onSwitchCamera, o
             display: 'flex', alignItems: 'center', justifyContent: 'center',
             fontSize: 16, flexShrink: 0,
           }}>📱</div>
-          <div>
+          <div style={{ flex: 1 }}>
             <div style={{ fontSize: 15, fontWeight: 700, color: C.t1, letterSpacing: '-0.3px' }}>PhoneBridge</div>
             <div style={{ fontSize: 10, color: C.t4 }}>v0.1.0</div>
+          </div>
+          {/* Notification bell + theme toggle */}
+          <div style={{ display: 'flex', gap: 4 }}>
+            {notifications !== undefined && onClearNotifications && (
+              <NotificationPanel notifications={notifications} onClear={onClearNotifications} />
+            )}
+            {onThemeToggle && (
+              <button onClick={onThemeToggle} title={`Switch to ${themeMode === 'dark' ? 'light' : 'dark'} mode`} style={{
+                background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)',
+                borderRadius: 8, color: C.t1, padding: '6px 8px', cursor: 'pointer', fontSize: 14,
+              }}>
+                {themeMode === 'dark' ? '☀️' : '🌙'}
+              </button>
+            )}
           </div>
         </div>
 
@@ -708,7 +1015,19 @@ export default function Dashboard({ state, settings, videoRef, onSwitchCamera, o
           {/* Connection */}
           <div style={card()}>
             <SectionLabel>Connection</SectionLabel>
-            <StatusBadge connected={isConnected} />
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+              <StatusBadge connected={isConnected} />
+              {isConnected && (
+                <div title="WebRTC uses DTLS-SRTP end-to-end encryption" style={{
+                  display: 'inline-flex', alignItems: 'center', gap: 4,
+                  padding: '3px 8px', borderRadius: 20, fontSize: 11, fontWeight: 600,
+                  background: 'rgba(34,197,94,0.12)', color: '#22c55e',
+                  border: '1px solid rgba(34,197,94,0.3)', cursor: 'default',
+                }}>
+                  🔒 E2E Encrypted
+                </div>
+              )}
+            </div>
             {isConnected && (
               <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 4 }}>
                 {state.phoneModel && (
@@ -851,6 +1170,50 @@ export default function Dashboard({ state, settings, videoRef, onSwitchCamera, o
               <span style={{ fontSize: 11, color: C.t4, fontFamily: C.mono }}>
                 {settings.video.resolution} · {settings.video.fps}fps · {settings.video.codec}
               </span>
+              <div style={{ width: 1, height: 20, background: C.border }} />
+              {/* Stats toggle */}
+              <button onClick={() => setShowStats((s) => !s)} style={{
+                background: showStats ? C.accentBg : 'transparent',
+                color: showStats ? C.accentL : C.t3,
+                border: `1px solid ${showStats ? C.accentL + '30' : 'transparent'}`,
+                borderRadius: 6, padding: '2px 8px', fontSize: 11, cursor: 'pointer',
+              }}>Stats</button>
+
+              <div style={{ width: 1, height: 20, background: C.border }} />
+
+              {/* Blur */}
+              <button onClick={() => onVideoEffects?.({ blur: !videoEffects?.blur })} title="Toggle background blur" style={{
+                background: videoEffects?.blur ? C.accentBg : 'transparent',
+                color: videoEffects?.blur ? C.accentL : C.t3,
+                border: `1px solid ${videoEffects?.blur ? C.accentL + '30' : 'transparent'}`,
+                borderRadius: 6, padding: '2px 8px', fontSize: 11, cursor: 'pointer',
+              }}>Blur</button>
+
+              {/* Filter picker */}
+              <select
+                value={videoEffects?.filter ?? 'none'}
+                onChange={(e) => onVideoEffects?.({ filter: e.target.value as any })}
+                style={{ background: C.surface3, border: `1px solid ${C.border}`, borderRadius: 6, padding: '2px 6px', color: C.t1, fontSize: 11, cursor: 'pointer' }}
+              >
+                {['none', 'grayscale', 'sepia', 'vivid', 'warm', 'cool'].map((f) => (
+                  <option key={f} value={f}>{f}</option>
+                ))}
+              </select>
+
+              {/* Record */}
+              <button onClick={() => onVideoEffects?.({ recording: !videoEffects?.recording })} title={videoEffects?.recording ? 'Stop recording' : 'Start recording'} style={{
+                background: videoEffects?.recording ? C.redBg : 'transparent',
+                color: videoEffects?.recording ? C.red : C.t3,
+                border: `1px solid ${videoEffects?.recording ? C.red + '40' : 'transparent'}`,
+                borderRadius: 6, padding: '2px 8px', fontSize: 11, cursor: 'pointer',
+              }}>{videoEffects?.recording ? '⏹ Stop' : '⏺ Rec'}</button>
+
+              {/* Snapshot */}
+              <button onClick={onSnapshot} title="Save snapshot" style={{
+                background: 'transparent', color: C.t3,
+                border: `1px solid transparent`,
+                borderRadius: 6, padding: '2px 8px', fontSize: 11, cursor: 'pointer',
+              }}>📷 Snap</button>
             </>
           )}
         </div>
@@ -864,8 +1227,15 @@ export default function Dashboard({ state, settings, videoRef, onSwitchCamera, o
           {isConnected ? (
             <video
               ref={videoRef}
-              style={{ width: '100%', height: '100%', objectFit: 'contain' }}
+              style={{ width: '100%', height: '100%', objectFit: 'contain', cursor: 'crosshair' }}
               autoPlay playsInline muted
+              onClick={(e) => {
+                if (!onCommand) return;
+                const rect = (e.currentTarget as HTMLVideoElement).getBoundingClientRect();
+                const x = (e.clientX - rect.left) / rect.width;
+                const y = (e.clientY - rect.top) / rect.height;
+                onCommand({ cmd: 'setFocus', x, y });
+              }}
             />
           ) : (
             <div style={{ textAlign: 'center' }}>
@@ -881,26 +1251,158 @@ export default function Dashboard({ state, settings, videoRef, onSwitchCamera, o
             </div>
           )}
 
-          {/* Recording dot */}
+          {/* Recording dot + VU meter */}
           {isConnected && (
-            <div style={{ position: 'absolute', top: 12, left: 12, display: 'flex', alignItems: 'center', gap: 6, padding: '4px 10px', borderRadius: 20, background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(4px)' }}>
-              <div style={{ width: 7, height: 7, borderRadius: '50%', background: C.red, boxShadow: `0 0 6px ${C.red}`, animation: 'pulse 1.5s infinite' }} />
-              <span style={{ fontSize: 11, color: '#fff', fontWeight: 600 }}>LIVE</span>
+            <div style={{ position: 'absolute', top: 12, left: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 10px', borderRadius: 20, background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(4px)' }}>
+                <div style={{ width: 7, height: 7, borderRadius: '50%', background: C.red, boxShadow: `0 0 6px ${C.red}`, animation: 'pulse 1.5s infinite' }} />
+                <span style={{ fontSize: 11, color: '#fff', fontWeight: 600 }}>LIVE</span>
+              </div>
+              <VUMeter stream={remoteStream} />
             </div>
           )}
 
-          {/* Camera switch overlay (when multiple cameras) */}
-          {isConnected && state.cameras.length > 1 && (
-            <div style={{ position: 'absolute', bottom: 12, right: 12, display: 'flex', gap: 6 }}>
-              {state.cameras.map((cam) => (
-                <button key={cam.id} onClick={() => onSwitchCamera(cam.id)} style={{
+          {/* Stats overlay */}
+          <StatsOverlay videoRef={videoRef} visible={showStats && isConnected} />
+
+          {/* Camera feature controls (top-left, below LIVE) */}
+          {isConnected && (
+            <div style={{ position: 'absolute', top: 50, left: 12, display: 'flex', gap: 5 }}>
+              {/* Grid toggle */}
+              <button
+                onClick={() => { const next = !gridEnabled; setGridEnabled(next); onCommand?.({ cmd: 'setGrid', enabled: next }); }}
+                title="Toggle rule-of-thirds grid"
+                style={{
+                  padding: '3px 8px', borderRadius: 12, border: 'none', cursor: 'pointer',
+                  background: gridEnabled ? 'rgba(124,58,237,0.7)' : 'rgba(0,0,0,0.6)',
+                  backdropFilter: 'blur(4px)', color: '#fff', fontSize: 10, fontWeight: 600,
+                }}>
+                Grid
+              </button>
+              {/* Night mode */}
+              <button
+                onClick={() => { const next = !nightModeEnabled; setNightModeEnabled(next); onCommand?.({ cmd: 'setNightMode', enabled: next }); }}
+                title="Toggle night mode"
+                style={{
+                  padding: '3px 8px', borderRadius: 12, border: 'none', cursor: 'pointer',
+                  background: nightModeEnabled ? 'rgba(99,102,241,0.7)' : 'rgba(0,0,0,0.6)',
+                  backdropFilter: 'blur(4px)', color: '#fff', fontSize: 10, fontWeight: 600,
+                }}>
+                🌙 Night
+              </button>
+              {/* Take photo */}
+              <button
+                onClick={() => onCommand?.({ cmd: 'takePhoto' })}
+                title="Capture photo"
+                style={{
+                  padding: '3px 8px', borderRadius: 12, border: 'none', cursor: 'pointer',
+                  background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)',
+                  color: '#fff', fontSize: 10, fontWeight: 600,
+                }}>
+                📷 Capture
+              </button>
+              {/* Exposure */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
+                <button
+                  onClick={() => { const next = Math.max(-3, exposureComp - 1); setExposureCompState(next); onCommand?.({ cmd: 'setExposure', compensation: next }); }}
+                  style={{ padding: '3px 7px', borderRadius: 10, border: 'none', cursor: 'pointer', background: 'rgba(0,0,0,0.6)', color: '#fff', fontSize: 11 }}>
+                  −EV
+                </button>
+                <span style={{ color: '#fff', fontSize: 10, background: 'rgba(0,0,0,0.6)', padding: '3px 6px', borderRadius: 8 }}>
+                  {exposureComp > 0 ? `+${exposureComp}` : exposureComp} EV
+                </span>
+                <button
+                  onClick={() => { const next = Math.min(3, exposureComp + 1); setExposureCompState(next); onCommand?.({ cmd: 'setExposure', compensation: next }); }}
+                  style={{ padding: '3px 7px', borderRadius: 10, border: 'none', cursor: 'pointer', background: 'rgba(0,0,0,0.6)', color: '#fff', fontSize: 11 }}>
+                  +EV
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Last photo preview (small thumbnail) */}
+          {lastPhoto && (
+            <div style={{ position: 'absolute', bottom: 60, left: 12, cursor: 'pointer' }}
+              onClick={() => setLastPhoto(null)} title="Click to dismiss">
+              <img src={lastPhoto} alt="Last capture"
+                style={{ width: 64, height: 48, objectFit: 'cover', borderRadius: 6, border: `2px solid ${C.accent}`, boxShadow: '0 2px 8px rgba(0,0,0,0.5)' }} />
+            </div>
+          )}
+
+          {/* Camera / torch / zoom controls overlay */}
+          {isConnected && (
+            <div style={{ position: 'absolute', bottom: 12, right: 12, display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 6 }}>
+              {/* Privacy mode button */}
+              <button
+                onClick={() => {
+                  const next = !privacyModeActive;
+                  setPrivacyModeActive(next);
+                  onCommand?.({ cmd: 'setPrivacyMode', enabled: next });
+                }}
+                title={privacyModeActive ? 'Disable privacy mode' : 'Enable privacy mode (pauses camera/mic)'}
+                style={{
                   padding: '5px 10px', borderRadius: 16, border: 'none', cursor: 'pointer',
-                  background: cam.id === state.activeCameraId ? C.accent : 'rgba(0,0,0,0.6)',
+                  background: privacyModeActive ? 'rgba(220,38,38,0.8)' : 'rgba(0,0,0,0.6)',
                   backdropFilter: 'blur(4px)',
-                  color: '#fff', fontSize: 11, fontWeight: 600,
-                  transition: 'all 0.12s',
-                }}>{cam.name}</button>
-              ))}
+                  color: '#fff', fontSize: 11, fontWeight: 600, transition: 'all 0.12s',
+                }}>
+                🔒 {privacyModeActive ? 'Private' : 'Privacy'}
+              </button>
+
+              {/* Torch + Zoom row */}
+              <div style={{ display: 'flex', gap: 6 }}>
+                {/* Torch toggle */}
+                <button
+                  onClick={() => { const next = !torchEnabled; setTorchEnabled(next); onTorch(next); }}
+                  title={torchEnabled ? 'Turn off torch' : 'Turn on torch'}
+                  style={{
+                    padding: '5px 10px', borderRadius: 16, border: 'none', cursor: 'pointer',
+                    background: torchEnabled ? 'rgba(245,158,11,0.8)' : 'rgba(0,0,0,0.6)',
+                    backdropFilter: 'blur(4px)',
+                    color: '#fff', fontSize: 11, fontWeight: 600, transition: 'all 0.12s',
+                  }}>
+                  🔦 {torchEnabled ? 'On' : 'Off'}
+                </button>
+                {/* Zoom out */}
+                <button
+                  onClick={() => { const next = parseFloat(Math.max(1.0, zoomLevel - 0.5).toFixed(1)); setZoomLevel(next); onZoom(next); }}
+                  disabled={zoomLevel <= 1.0}
+                  style={{
+                    padding: '5px 9px', borderRadius: 16, border: 'none', cursor: zoomLevel > 1.0 ? 'pointer' : 'default',
+                    background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)',
+                    color: zoomLevel > 1.0 ? '#fff' : 'rgba(255,255,255,0.3)',
+                    fontSize: 13, fontWeight: 700, transition: 'all 0.12s',
+                  }}>−</button>
+                {/* Zoom level */}
+                <div style={{
+                  padding: '5px 10px', borderRadius: 16,
+                  background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)',
+                  color: '#fff', fontSize: 11, fontWeight: 600, minWidth: 44, textAlign: 'center',
+                }}>{zoomLevel.toFixed(1)}×</div>
+                {/* Zoom in */}
+                <button
+                  onClick={() => { const next = parseFloat(Math.min(10.0, zoomLevel + 0.5).toFixed(1)); setZoomLevel(next); onZoom(next); }}
+                  disabled={zoomLevel >= 10.0}
+                  style={{
+                    padding: '5px 9px', borderRadius: 16, border: 'none', cursor: zoomLevel < 10.0 ? 'pointer' : 'default',
+                    background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)',
+                    color: zoomLevel < 10.0 ? '#fff' : 'rgba(255,255,255,0.3)',
+                    fontSize: 13, fontWeight: 700, transition: 'all 0.12s',
+                  }}>+</button>
+              </div>
+              {/* Camera switcher row */}
+              {state.cameras.length > 1 && (
+                <div style={{ display: 'flex', gap: 6 }}>
+                  {state.cameras.map((cam) => (
+                    <button key={cam.id} onClick={() => onSwitchCamera(cam.id)} style={{
+                      padding: '5px 10px', borderRadius: 16, border: 'none', cursor: 'pointer',
+                      background: cam.id === state.activeCameraId ? C.accent : 'rgba(0,0,0,0.6)',
+                      backdropFilter: 'blur(4px)',
+                      color: '#fff', fontSize: 11, fontWeight: 600, transition: 'all 0.12s',
+                    }}>{cam.name}</button>
+                  ))}
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -939,7 +1441,26 @@ export default function Dashboard({ state, settings, videoRef, onSwitchCamera, o
           <div style={{ flex: 1, overflow: 'auto', padding: '10px 12px' }}>
             {bottomTab === 'sensors' && <SensorsTab sensorData={state.sensorData} />}
             {bottomTab === 'nfc' && <NFCTab />}
-            {bottomTab === 'settings' && <SettingsTab settings={settings} onChange={onSettingsChange} driverStatus={state.driverStatus} />}
+            {bottomTab === 'settings' && (
+              <SettingsTab
+                settings={settings}
+                onChange={onSettingsChange}
+                driverStatus={state.driverStatus}
+                sysAudioActive={sysAudioActive}
+                gainValue={gainValue}
+                noiseGateThreshold={noiseGateThreshold}
+                onStartSystemAudio={async () => {
+                  await onStartSystemAudio?.();
+                  setSysAudioActive(true);
+                }}
+                onStopSystemAudio={() => {
+                  onStopSystemAudio?.();
+                  setSysAudioActive(false);
+                }}
+                onSetGain={(v) => { setGainValue(v); onSetGain?.(v); }}
+                onSetNoiseGate={(v) => { setNoiseGateThresholdState(v); onSetNoiseGate?.(v); }}
+              />
+            )}
             {bottomTab === 'api' && <APITab ip={state.ip} />}
           </div>
         </div>

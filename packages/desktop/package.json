@@ -2,6 +2,8 @@
   "name": "@phonebridge/desktop",
   "version": "0.1.0",
   "private": true,
+  "description": "PhoneBridge Desktop — use your phone as a wireless webcam, mic, and sensor hub",
+  "author": "PhoneBridge",
   "main": "out/main/index.js",
   "scripts": {
     "dev": "electron-vite dev",
@@ -10,7 +12,7 @@
     "package": "electron-builder"
   },
   "dependencies": {
-    "@abandonware/naudiodon": "^0.3.2",
+    "naudiodon": "^2.0.0",
     "@phonebridge/shared": "workspace:*",
     "bonjour-service": "^1.2.1",
     "bufferutil": "^4.1.0",

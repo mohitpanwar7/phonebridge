@@ -9,6 +9,8 @@ import {
   Alert,
   ActivityIndicator,
   Dimensions,
+  ScrollView,
+  RefreshControl,
 } from 'react-native';
 import {
   Camera,
@@ -18,6 +20,7 @@ import {
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../App';
 import { DiscoveryService, type DiscoveredDevice } from '../services/DiscoveryService';
+import { connectionHistory, type ConnectionRecord } from '../utils/ConnectionHistory';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Home'>;
 
@@ -29,6 +32,7 @@ export default function HomeScreen({ navigation }: Props) {
   const [showManual, setShowManual] = useState(false);
   const [mode, setMode] = useState<'list' | 'qr'>('list');
   const [cameraPermission, setCameraPermission] = useState<string>('not-determined');
+  const [recentConnections, setRecentConnections] = useState<ConnectionRecord[]>([]);
   const qrHandled = useRef(false);
 
   const discovery = React.useRef(new DiscoveryService()).current;
@@ -37,6 +41,7 @@ export default function HomeScreen({ navigation }: Props) {
   useEffect(() => {
     discovery.onDevicesChanged((found) => setDevices([...found]));
     startScan();
+    connectionHistory.load().then(setRecentConnections).catch(() => {});
     return () => { discovery.destroy(); };
   }, []);
 
@@ -142,7 +147,18 @@ export default function HomeScreen({ navigation }: Props) {
 
   // ── Main List View ─────────────────────────────────────────────────────────
   return (
-    <View style={styles.container}>
+    <ScrollView
+      style={styles.container}
+      contentContainerStyle={{ flexGrow: 1 }}
+      refreshControl={
+        <RefreshControl
+          refreshing={scanning}
+          onRefresh={startScan}
+          tintColor="#a78bfa"
+          colors={['#7c3aed']}
+        />
+      }
+    >
       {/* Hero */}
       <View style={styles.hero}>
         <View style={styles.iconBg}>
@@ -241,6 +257,32 @@ export default function HomeScreen({ navigation }: Props) {
         )}
       </View>
 
+      {/* Recent Connections */}
+      {recentConnections.length > 0 && (
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Recent</Text>
+          {recentConnections.slice(0, 5).map((rec) => (
+            <TouchableOpacity
+              key={`${rec.ip}:${rec.port}`}
+              style={styles.deviceItem}
+              onPress={() => connectToDevice(rec.ip, rec.port)}
+              activeOpacity={0.7}
+            >
+              <View style={styles.deviceIconBg}>
+                <Text style={{ fontSize: 16 }}>🕐</Text>
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.deviceName}>{rec.name || rec.ip}</Text>
+                <Text style={styles.deviceIP}>
+                  {rec.ip}:{rec.port} · {new Date(rec.lastConnected).toLocaleDateString()}
+                </Text>
+              </View>
+              <Text style={styles.connectArrow}>→</Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+      )}
+
       {/* NFC entry point */}
       <TouchableOpacity
         style={styles.nfcCard}
@@ -258,7 +300,7 @@ export default function HomeScreen({ navigation }: Props) {
       <View style={styles.footer}>
         <Text style={styles.footerText}>Make sure your phone and PC are on the same WiFi network</Text>
       </View>
-    </View>
+    </ScrollView>
   );
 }
 

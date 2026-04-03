@@ -78,5 +78,24 @@
           android:name="android.nfc.cardemulation.host_apdu_service"
           android:resource="@xml/apduservice" />
       </service>
+
+      <!-- Foreground service for screen-off streaming (Phase 10) -->
+      <service
+        android:name=".StreamingService"
+        android:exported="false"
+        android:foregroundServiceType="camera|microphone" />
+
+      <!-- Home screen widget (Phase 10) -->
+      <receiver
+        android:name=".PhoneBridgeWidget"
+        android:exported="true">
+        <intent-filter>
+          <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+          <action android:name="com.phonebridgemobile.WIDGET_TOGGLE" />
+        </intent-filter>
+        <meta-data
+          android:name="android.appwidget.provider"
+          android:resource="@xml/widget_info" />
+      </receiver>
     </application>
 </manifest>

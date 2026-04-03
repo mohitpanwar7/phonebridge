@@ -31,11 +31,19 @@ const MEDIA_CONSTRAINTS = {
 
 type DataChannelMessageHandler = (msg: any) => void;
 
+export interface ConnectionQuality {
+  bars: 1 | 2 | 3 | 4;
+  rttMs: number;
+  lossRate: number; // 0–1
+}
+
 export class WebRTCManager {
   private pc: RTCPeerConnection | null = null;
   private localStream: MediaStream | null = null;
   private dataChannel: any = null; // RTCDataChannel
   private dataChannelHandlers: Set<DataChannelMessageHandler> = new Set();
+  private statsInterval: ReturnType<typeof setInterval> | null = null;
+  private currentMaxBitrate = 4_000_000; // 4 Mbps starting point
 
   constructor(private signaling: SignalingClient) {
     this.signaling.onMessage((msg) => {
@@ -240,11 +248,91 @@ export class WebRTCManager {
     this.localStream.addTrack(newVideoTrack);
   }
 
+  // ── Adaptive bitrate + connection quality stats ────────────────────────────
+
+  startQualityMonitor(callback: (quality: ConnectionQuality) => void) {
+    this.statsInterval = setInterval(async () => {
+      if (!this.pc) return;
+      try {
+        const stats: RTCStatsReport = await (this.pc as any).getStats();
+        let fractionLost = 0;
+        let rtt = 0;
+        stats.forEach((report: any) => {
+          if (report.type === 'inbound-rtp' && report.kind === 'video') {
+            fractionLost = report.fractionLost ?? 0; // 0–1 per RFC
+          }
+          if (
+            (report.type === 'candidate-pair' || report.type === 'transport') &&
+            report.currentRoundTripTime
+          ) {
+            rtt = report.currentRoundTripTime; // seconds
+          }
+        });
+
+        const rttMs = rtt * 1000;
+        const bars: 1 | 2 | 3 | 4 =
+          rttMs < 50 && fractionLost < 0.01 ? 4 :
+          rttMs < 100 && fractionLost < 0.03 ? 3 :
+          rttMs < 200 && fractionLost < 0.07 ? 2 : 1;
+
+        callback({ bars, rttMs, lossRate: fractionLost });
+
+        // Adaptive bitrate: lower on high loss, raise gradually on good quality
+        const senders = this.pc?.getSenders() ?? [];
+        const videoSender = senders.find((s: any) => s.track?.kind === 'video');
+        if (videoSender) {
+          if (fractionLost > 0.05) {
+            this.currentMaxBitrate = Math.max(300_000, this.currentMaxBitrate * 0.8);
+          } else if (fractionLost < 0.01) {
+            this.currentMaxBitrate = Math.min(8_000_000, this.currentMaxBitrate * 1.05);
+          }
+          try {
+            const params = videoSender.getParameters();
+            if (params.encodings?.length) {
+              params.encodings[0].maxBitrate = this.currentMaxBitrate;
+              await videoSender.setParameters(params);
+            }
+          } catch { /* setParameters not supported on all platforms */ }
+        }
+      } catch { /* getStats may fail during ice gathering */ }
+    }, 2000);
+  }
+
+  stopQualityMonitor() {
+    if (this.statsInterval) {
+      clearInterval(this.statsInterval);
+      this.statsInterval = null;
+    }
+  }
+
+  async setTorch(enabled: boolean) {
+    const videoTrack = this.localStream?.getVideoTracks()[0];
+    if (videoTrack) {
+      try {
+        await (videoTrack as any).applyConstraints({ advanced: [{ torch: enabled }] });
+      } catch {
+        // torch not supported on this device/camera
+      }
+    }
+  }
+
+  async setZoom(level: number) {
+    const videoTrack = this.localStream?.getVideoTracks()[0];
+    if (videoTrack) {
+      try {
+        await (videoTrack as any).applyConstraints({ zoom: level });
+      } catch {
+        // zoom not supported natively; ignore
+      }
+    }
+  }
+
   getLocalStream(): MediaStream | null {
     return this.localStream;
   }
 
   stop() {
+    this.stopQualityMonitor();
     this.localStream?.getTracks().forEach((track: any) => track.stop());
     this.dataChannel?.close();
     this.pc?.close();

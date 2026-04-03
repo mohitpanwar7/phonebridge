@@ -2,6 +2,10 @@ import React, { useEffect, useRef, useState, useCallback } from 'react';
 import Dashboard from './components/Dashboard';
 import { useWebRTC } from './hooks/useWebRTC';
 import { AudioDecoder } from './audio/AudioDecoder';
+import { VideoProcessor, type VideoEffects, DEFAULT_EFFECTS } from './video/VideoProcessor';
+import { OnboardingOverlay, useOnboarding } from './components/OnboardingOverlay';
+import { useNotifications } from './components/NotificationPanel';
+import { applyTheme, getPreferredTheme } from './theme';
 import type {
   ConnectionState,
   CameraDevice,
@@ -128,6 +132,19 @@ export interface AppState {
 }
 
 export default function App() {
+  // Phase 16: Theme
+  const [themeMode, setThemeMode] = useState(() => getPreferredTheme());
+  useEffect(() => {
+    applyTheme(themeMode);
+    localStorage.setItem('phonebridge-theme', themeMode);
+  }, [themeMode]);
+
+  // Phase 16: Notifications
+  const { notifications, addNotification, clearNotifications } = useNotifications();
+
+  // Phase 16: Onboarding
+  const { showOnboarding, dismissOnboarding } = useOnboarding();
+
   const [state, setState] = useState<AppState>({
     connectionState: 'disconnected',
     qrCode: null,
@@ -158,31 +175,29 @@ export default function App() {
   const canvasRef  = useRef<HTMLCanvasElement>(null);
   const frameLoopRef = useRef<number | null>(null);
   const audioDecoderRef = useRef<AudioDecoder>(new AudioDecoder());
+  const videoProcessorRef = useRef<VideoProcessor>(new VideoProcessor());
+  const [videoEffects, setVideoEffects] = useState<VideoEffects>(DEFAULT_EFFECTS);
 
-  // ── Video frame capture → Softcam ──────────────────────────────────────────
+  // ── Video frame capture → VideoProcessor → Softcam ───────────────────────
   const startFrameCapture = useCallback((stream: MediaStream) => {
-    const video  = videoRef.current;
-    const canvas = canvasRef.current;
-    if (!video || !canvas) return;
+    const video = videoRef.current;
+    if (!video) return;
 
     video.srcObject = stream;
     video.play().catch(() => {});
 
     video.onloadedmetadata = () => {
-      canvas.width  = video.videoWidth;
-      canvas.height = video.videoHeight;
-      const ctx = canvas.getContext('2d');
-      if (!ctx) return;
+      // Stop any existing processor loop
+      if (frameLoopRef.current) {
+        cancelAnimationFrame(frameLoopRef.current);
+        frameLoopRef.current = null;
+      }
+      videoProcessorRef.current.stop();
 
-      const captureFrame = () => {
-        if (video.readyState >= 2) {
-          ctx.drawImage(video, 0, 0);
-          const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-          getBridge().sendVideoFrame(imageData.data.buffer, canvas.width, canvas.height);
-        }
-        frameLoopRef.current = requestAnimationFrame(captureFrame);
-      };
-      frameLoopRef.current = requestAnimationFrame(captureFrame);
+      // Start video processor — it handles effects, crop, recording
+      videoProcessorRef.current.start(video, (imageData, w, h) => {
+        getBridge().sendVideoFrame(imageData.data.buffer, w, h);
+      });
     };
 
     // ── Audio → VB-Cable ─────────────────────────────────────────────────────
@@ -193,7 +208,7 @@ export default function App() {
     }
   }, []);
 
-  useWebRTC({ onTrack: startFrameCapture });
+  const { startSystemAudio, stopSystemAudio, setGain, setNoiseGateThreshold } = useWebRTC({ onTrack: startFrameCapture });
 
   // ── Bridge event handlers ──────────────────────────────────────────────────
   useEffect(() => {
@@ -203,7 +218,10 @@ export default function App() {
 
     getBridge().onPhoneConnected((connected) => {
       setState((prev) => ({ ...prev, connectionState: connected ? 'connected' : 'disconnected' }));
-      if (!connected) {
+      if (connected) {
+        addNotification('Phone connected', 'info', '📱');
+      } else {
+        addNotification('Phone disconnected', 'warn', '📵');
         if (frameLoopRef.current) {
           cancelAnimationFrame(frameLoopRef.current);
           frameLoopRef.current = null;
@@ -242,6 +260,11 @@ export default function App() {
 
     getBridge().onPhoneStatus((status: any) => {
       setState((prev) => ({ ...prev, batteryLevel: status.battery, isCharging: status.isCharging }));
+      if (status.battery < 0.1) {
+        addNotification(`Battery critical: ${Math.round(status.battery * 100)}%`, 'error', '🔋');
+      } else if (status.battery < 0.2) {
+        addNotification(`Battery low: ${Math.round(status.battery * 100)}%`, 'warn', '🔋');
+      }
     });
 
     getBridge().onDriverStatus((status) => {
@@ -255,6 +278,7 @@ export default function App() {
 
     return () => {
       if (frameLoopRef.current) cancelAnimationFrame(frameLoopRef.current);
+      videoProcessorRef.current.stop();
       audioDecoderRef.current.stop();
     };
   }, []);
@@ -269,6 +293,31 @@ export default function App() {
     getBridge().sendCommand({ cmd: 'switchMic', source });
     setState((prev) => ({ ...prev, activeMicId: source }));
   };
+
+  const setTorch = (enabled: boolean) => {
+    getBridge().sendCommand({ cmd: 'setTorch', enabled });
+  };
+
+  const setZoom = (level: number) => {
+    getBridge().sendCommand({ cmd: 'setZoom', level });
+  };
+
+  const sendCommand = (cmd: object) => {
+    getBridge().sendCommand(cmd);
+  };
+
+  const applyVideoEffects = useCallback((effects: Partial<VideoEffects>) => {
+    videoProcessorRef.current.setEffects(effects);
+    setVideoEffects(videoProcessorRef.current.getEffects());
+  }, []);
+
+  const takeSnapshot = useCallback(() => {
+    const dataURL = videoProcessorRef.current.snapshot();
+    const a = document.createElement('a');
+    a.href = dataURL;
+    a.download = `phonebridge-snapshot-${Date.now()}.png`;
+    a.click();
+  }, []);
 
   const applySettings = useCallback((next: AppSettings) => {
     setSettings(next);
@@ -302,6 +351,7 @@ export default function App() {
   return (
     <>
       <canvas ref={canvasRef} style={{ display: 'none' }} />
+      {showOnboarding && <OnboardingOverlay onDone={dismissOnboarding} />}
       <Dashboard
         state={state}
         settings={settings}
@@ -309,6 +359,20 @@ export default function App() {
         onSwitchCamera={switchCamera}
         onSwitchMic={switchMic}
         onSettingsChange={applySettings}
+        onTorch={setTorch}
+        onZoom={setZoom}
+        onCommand={sendCommand}
+        onStartSystemAudio={startSystemAudio}
+        onStopSystemAudio={stopSystemAudio}
+        onSetGain={setGain}
+        onSetNoiseGate={setNoiseGateThreshold}
+        videoEffects={videoEffects}
+        onVideoEffects={applyVideoEffects}
+        onSnapshot={takeSnapshot}
+        notifications={notifications}
+        onClearNotifications={clearNotifications}
+        themeMode={themeMode}
+        onThemeToggle={() => setThemeMode((m) => m === 'dark' ? 'light' : 'dark')}
       />
     </>
   );

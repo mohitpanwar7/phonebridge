@@ -1,0 +1,34 @@
+appId: com.phonebridge.desktop
+productName: PhoneBridge
+copyright: Copyright © 2025 PhoneBridge
+
+npmRebuild: false
+
+directories:
+  output: dist
+  buildResources: resources
+
+files:
+  - out/**/*
+  - package.json
+
+win:
+  target:
+    - target: nsis
+      arch: [x64]
+  artifactName: PhoneBridge-Setup-${version}.exe
+  signAndEditExecutable: false
+
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  installerIcon: resources/icon.ico
+  uninstallerIcon: resources/icon.ico
+  installerHeaderIcon: resources/icon.ico
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: PhoneBridge
+  deleteAppDataOnUninstall: false
+
+portable:
+  artifactName: PhoneBridge-Portable-${version}.exe

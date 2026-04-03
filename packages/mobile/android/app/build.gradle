@@ -7,8 +7,8 @@ apply plugin: "com.facebook.react"
  * By default you don't need to apply any configuration, just uncomment the lines you need.
  */
 react {
-    /* Monorepo paths — node_modules are hoisted to the workspace root */
-    root = file("../../..")
+    /* Monorepo paths — root is packages/mobile, node_modules are in packages/mobile/node_modules */
+    root = file("../..")
     reactNativeDir = file("../../node_modules/react-native")
     codegenDir = file("../../node_modules/@react-native/codegen")
     cliFile = file("../../node_modules/react-native/cli.js")

@@ -94,7 +94,8 @@ export type PhoneToDesktopMessage =
   | NFCTagScannedMessage
   | NFCWriteResultMessage
   | NFCSavedTagsMessage
-  | NFCReplayStatusMessage;
+  | NFCReplayStatusMessage
+  | PhotoCapturedMessage;
 
 // ── DataChannel Messages (Desktop → Phone) ──
 
@@ -130,6 +131,60 @@ export interface EnableSpeakerCommand {
   enabled: boolean;
 }
 
+export interface SetTorchCommand {
+  cmd: 'setTorch';
+  enabled: boolean;
+}
+
+export interface SetZoomCommand {
+  cmd: 'setZoom';
+  level: number; // 1.0 = no zoom, up to 10.0
+}
+
+export interface SetFocusCommand {
+  cmd: 'setFocus';
+  x: number; // normalized 0–1
+  y: number; // normalized 0–1
+}
+
+export interface SetExposureCommand {
+  cmd: 'setExposure';
+  compensation: number; // -3 to +3 EV
+}
+
+export interface SetWhiteBalanceCommand {
+  cmd: 'setWhiteBalance';
+  temperature: number; // Kelvin, e.g. 2700–8000, or 0 = auto
+}
+
+export interface TakePhotoCommand {
+  cmd: 'takePhoto';
+}
+
+export interface SetNightModeCommand {
+  cmd: 'setNightMode';
+  enabled: boolean;
+}
+
+export interface SetGridCommand {
+  cmd: 'setGrid';
+  enabled: boolean;
+}
+
+export interface SetOrientationLockCommand {
+  cmd: 'setOrientationLock';
+  orientation: 'portrait' | 'landscape' | 'auto';
+}
+
+// Photo captured on phone → Desktop
+export interface PhotoCapturedMessage {
+  type: 'photoCaptured';
+  dataURL: string; // base64 JPEG
+  width: number;
+  height: number;
+  timestamp: number;
+}
+
 // ── NFC Commands (Desktop → Phone) ──
 
 export interface NFCStartScanCommand   { cmd: 'nfcStartScan'; }
@@ -141,6 +196,29 @@ export interface NFCDeleteTagCommand   { cmd: 'nfcDeleteTag'; tagId: string; }
 export interface NFCUpdateTagCommand   { cmd: 'nfcUpdateTag'; tagId: string; name?: string; notes?: string; }
 export interface NFCRequestTagsCommand { cmd: 'nfcRequestTags'; }
 
+export interface SetPrivacyModeCommand {
+  cmd: 'setPrivacyMode';
+  enabled: boolean;
+}
+
+export interface SetVideoQualityCommand {
+  cmd: 'setVideoQuality';
+  width: number;
+  height: number;
+  fps: number;
+  codec: string;
+  bitrateKbps: number;
+}
+
+export interface SetAudioQualityCommand {
+  cmd: 'setAudioQuality';
+  enabled: boolean;
+  sampleRate: number;
+  channels: number;
+  noiseSuppression: boolean;
+  echoCancellation: boolean;
+}
+
 export type DesktopToPhoneCommand =
   | SwitchCameraCommand
   | SwitchMicCommand
@@ -148,6 +226,15 @@ export type DesktopToPhoneCommand =
   | EnableSensorCommand
   | UpdateSettingsCommand
   | EnableSpeakerCommand
+  | SetTorchCommand
+  | SetZoomCommand
+  | SetFocusCommand
+  | SetExposureCommand
+  | SetWhiteBalanceCommand
+  | TakePhotoCommand
+  | SetNightModeCommand
+  | SetGridCommand
+  | SetOrientationLockCommand
   | NFCStartScanCommand
   | NFCStopScanCommand
   | NFCWriteCommand
@@ -155,4 +242,7 @@ export type DesktopToPhoneCommand =
   | NFCStopReplayCommand
   | NFCDeleteTagCommand
   | NFCUpdateTagCommand
-  | NFCRequestTagsCommand;
+  | NFCRequestTagsCommand
+  | SetPrivacyModeCommand
+  | SetVideoQualityCommand
+  | SetAudioQualityCommand;

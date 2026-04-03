@@ -7,11 +7,15 @@ import type {
 } from '@phonebridge/shared';
 import { SensorStore } from './SensorStore';
 import { NFCStore } from './NFCStore';
+import type { SensorAlerts } from './SensorAlerts';
+import type { WebhookRelay } from './WebhookRelay';
 
 export class SignalingServer {
   private wss: WebSocketServer | null = null;
   private phoneSocket: WebSocket | null = null;
   public sessionId: string;
+  private sensorAlerts?: SensorAlerts;
+  private webhookRelay?: WebhookRelay;
 
   constructor(
     private port: number,
@@ -21,6 +25,9 @@ export class SignalingServer {
   ) {
     this.sessionId = uuidv4();
   }
+
+  setSensorAlerts(alerts: SensorAlerts) { this.sensorAlerts = alerts; }
+  setWebhookRelay(relay: WebhookRelay) { this.webhookRelay = relay; }
 
   start() {
     this.wss = new WebSocketServer({ port: this.port });
@@ -71,17 +78,25 @@ export class SignalingServer {
         case 'sensor':
           this.sensorStore.update(msg.sensor, msg.data, msg.ts);
           this.emitToRenderer('sensor-data', msg);
+          this.sensorAlerts?.check(msg.sensor, msg.data);
+          this.webhookRelay?.relay(msg.sensor, msg.data, msg.ts);
           break;
 
         case 'sensorBatch':
           for (const reading of msg.readings) {
             this.sensorStore.update(msg.sensor, reading.data, reading.ts);
+            this.sensorAlerts?.check(msg.sensor, reading.data);
+            this.webhookRelay?.relay(msg.sensor, reading.data, reading.ts);
           }
           this.emitToRenderer('sensor-data', msg);
           break;
 
         case 'status':
           this.emitToRenderer('phone-status', msg);
+          break;
+
+        case 'photoCaptured':
+          this.emitToRenderer('photo-captured', msg);
           break;
 
         case 'nfcTagScanned':

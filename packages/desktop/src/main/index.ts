@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain } from 'electron';
+import { app, BrowserWindow, ipcMain, globalShortcut } from 'electron';
 import { join } from 'path';
 import { SignalingServer } from './SignalingServer';
 import { MDNSAdvertiser } from './MDNSAdvertiser';
@@ -11,12 +11,22 @@ import { VirtualMicrophone } from './VirtualMicrophone';
 import { VBCableDetector } from './VBCableDetector';
 import { SoftcamInstaller } from './SoftcamInstaller';
 import { NFCStore } from './NFCStore';
+import { TrayManager } from './TrayManager';
+import { SensorAlerts } from './SensorAlerts';
+import { WebhookRelay } from './WebhookRelay';
+import { CommandServer } from './api/CommandServer';
+import { NamedPipeServer } from './api/NamedPipeServer';
+import { ComputedSensors } from './ComputedSensors';
+import { SensorRecorder } from './SensorRecorder';
+import { SensorReplayer } from './SensorReplayer';
 import {
   SIGNALING_PORT,
   REST_API_PORT,
   WEBSOCKET_API_PORT,
   APP_NAME,
 } from '@phonebridge/shared';
+
+const COMMAND_SERVER_PORT = 8422;
 
 let mainWindow: BrowserWindow | null = null;
 let signalingServer: SignalingServer;
@@ -29,6 +39,14 @@ let virtualMic: VirtualMicrophone;
 let vbCableDetector: VBCableDetector;
 let softcamInstaller: SoftcamInstaller;
 let nfcStore: NFCStore;
+let trayManager: TrayManager;
+let sensorAlerts: SensorAlerts;
+let webhookRelay: WebhookRelay;
+let commandServer: CommandServer;
+let namedPipeServer: NamedPipeServer;
+let computedSensors: ComputedSensors;
+let sensorRecorder: SensorRecorder;
+let sensorReplayer: SensorReplayer;
 let cachedInitData: unknown = null;
 
 // Track driver status for renderer
@@ -64,6 +82,14 @@ function createWindow() {
     mainWindow?.webContents.send('driver-status', { softcamReady, vbCableReady });
   });
 
+  // Minimize to tray instead of closing
+  mainWindow.on('close', (e) => {
+    if (!app.isQuitting) {
+      e.preventDefault();
+      mainWindow?.hide();
+    }
+  });
+
   mainWindow.on('closed', () => {
     mainWindow = null;
   });
@@ -76,10 +102,34 @@ async function startServices() {
   virtualMic        = new VirtualMicrophone();
   vbCableDetector   = new VBCableDetector();
   softcamInstaller  = new SoftcamInstaller();
+  sensorAlerts      = new SensorAlerts();
+  webhookRelay      = new WebhookRelay();
+
+  sensorAlerts.setOnAlert((rule, value) => {
+    mainWindow?.webContents.send('sensor-alert-fired', { rule, value });
+  });
+
+  computedSensors = new ComputedSensors(sensorStore);
+  computedSensors.setOnUpdate((name, data, ts) => {
+    mainWindow?.webContents.send('sensor-data', { type: 'sensor', sensor: name, ts, data });
+  });
+  computedSensors.start();
+
+  sensorRecorder = new SensorRecorder(sensorStore);
+  sensorReplayer = new SensorReplayer(sensorStore);
 
   signalingServer = new SignalingServer(SIGNALING_PORT, sensorStore, (event, data) => {
     mainWindow?.webContents.send(event, data);
+    // Update tray on connection events
+    if (event === 'phone-connected') {
+      trayManager?.setConnected(data as boolean);
+    }
+    if (event === 'device-info') {
+      trayManager?.setConnected(true, (data as any).cameras ?? []);
+    }
   }, nfcStore);
+  signalingServer.setSensorAlerts(sensorAlerts);
+  signalingServer.setWebhookRelay(webhookRelay);
   signalingServer.start();
 
   mdnsAdvertiser = new MDNSAdvertiser(SIGNALING_PORT);
@@ -90,6 +140,32 @@ async function startServices() {
 
   wsServer = new SensorWebSocketServer(WEBSOCKET_API_PORT, sensorStore);
   wsServer.start();
+
+  // ── OBS/StreamDeck command server ────────────────────────────────────────────
+  commandServer = new CommandServer(COMMAND_SERVER_PORT);
+  commandServer.register('switchCamera', (cmd: any) => {
+    signalingServer?.sendCommand({ cmd: 'switchCamera', deviceId: cmd.deviceId } as any);
+    mainWindow?.webContents.send('camera-switched', cmd.deviceId);
+  });
+  commandServer.register('toggleMic', () => {
+    mainWindow?.webContents.send('shortcut-toggle-mic');
+  });
+  commandServer.register('snapshot', () => {
+    mainWindow?.webContents.send('shortcut-snapshot');
+  });
+  commandServer.register('toggleTorch', () => {
+    mainWindow?.webContents.send('shortcut-toggle-torch');
+  });
+  commandServer.register('setZoom', (cmd: any) => {
+    signalingServer?.sendCommand({ cmd: 'setZoom', level: cmd.level } as any);
+  });
+  commandServer.start();
+
+  // Named pipe server (for Unity/Unreal integration) — Windows only
+  if (process.platform === 'win32') {
+    namedPipeServer = new NamedPipeServer(sensorStore);
+    namedPipeServer.start();
+  }
 
   const localIP = getLocalIP();
   const qrData = JSON.stringify({
@@ -198,15 +274,128 @@ ipcMain.handle('nfc-send-command', (_event, cmd: object) => {
   signalingServer?.sendCommand(cmd as any);
 });
 
+// ── Settings IPC ──────────────────────────────────────────────────────────────
+
+ipcMain.handle('get-login-item', () => app.getLoginItemSettings());
+ipcMain.handle('set-login-item', (_event, enabled: boolean) => {
+  app.setLoginItemSettings({ openAtLogin: enabled, openAsHidden: true });
+});
+
+// Export sensor data
+ipcMain.handle('export-sensors-csv', async () => {
+  try {
+    const { SensorExporter } = await import('./SensorExporter');
+    const exporter = new SensorExporter(sensorStore);
+    await exporter.exportCSV();
+  } catch (err) {
+    console.error('[Main] Export failed:', err);
+  }
+});
+
+ipcMain.handle('export-sensors-json', async () => {
+  try {
+    const { SensorExporter } = await import('./SensorExporter');
+    const exporter = new SensorExporter(sensorStore);
+    await exporter.exportJSON();
+  } catch (err) {
+    console.error('[Main] Export failed:', err);
+  }
+});
+
+// ── Sensor Alerts IPC ─────────────────────────────────────────────────────────
+ipcMain.handle('get-alert-rules', () => sensorAlerts?.getRules() ?? []);
+ipcMain.handle('set-alert-rules', (_event, rules) => sensorAlerts?.setRules(rules));
+
+// ── Webhook Relay IPC ─────────────────────────────────────────────────────────
+ipcMain.handle('get-webhook-configs', () => webhookRelay?.getConfigs() ?? []);
+ipcMain.handle('set-webhook-configs', (_event, configs) => webhookRelay?.setConfigs(configs));
+
+// ── Computed Sensors IPC ──────────────────────────────────────────────────────
+ipcMain.handle('get-computed-sensor-defs', () => computedSensors?.getDefs() ?? []);
+ipcMain.handle('set-computed-sensor-defs', (_event, defs) => computedSensors?.setDefs(defs));
+
+// ── Sensor Recorder / Replayer IPC ───────────────────────────────────────────
+ipcMain.handle('sensor-recording-start', () => sensorRecorder?.startRecording());
+ipcMain.handle('sensor-recording-stop', async () => {
+  const recording = sensorRecorder?.stopRecording();
+  if (recording) await sensorRecorder?.saveRecording(recording);
+  return recording ? true : false;
+});
+ipcMain.handle('sensor-recording-status', () => sensorRecorder?.isRecording() ?? false);
+ipcMain.handle('sensor-replay-start', (_event, recording) => {
+  sensorReplayer?.loadRecording(recording);
+  sensorReplayer?.startReplay();
+});
+ipcMain.handle('sensor-replay-pause', () => sensorReplayer?.pauseReplay());
+ipcMain.handle('sensor-replay-resume', () => sensorReplayer?.resumeReplay());
+ipcMain.handle('sensor-replay-stop', () => sensorReplayer?.stopReplay());
+ipcMain.handle('sensor-replay-speed', (_event, speed: number) => sensorReplayer?.setPlaybackSpeed(speed));
+
 // ─────────────────────────────────────────────────────────────────────────────
+
+function registerShortcuts() {
+  // Ctrl+Shift+1/2/3: switch camera by index
+  [0, 1, 2].forEach((i) => {
+    globalShortcut.register(`CommandOrControl+Shift+${i + 1}`, () => {
+      const cameras = signalingServer?.getCameraList?.() ?? [];
+      const cam = cameras[i];
+      if (cam) {
+        signalingServer?.sendCommand({ cmd: 'switchCamera', deviceId: cam.id } as any);
+        mainWindow?.webContents.send('camera-switched', cam.id);
+      }
+    });
+  });
+  // Ctrl+Shift+M: toggle mic
+  globalShortcut.register('CommandOrControl+Shift+M', () => {
+    mainWindow?.webContents.send('shortcut-toggle-mic');
+  });
+  // Ctrl+Shift+S: snapshot
+  globalShortcut.register('CommandOrControl+Shift+S', () => {
+    mainWindow?.webContents.send('shortcut-snapshot');
+  });
+  // Ctrl+Shift+T: toggle torch
+  globalShortcut.register('CommandOrControl+Shift+T', () => {
+    mainWindow?.webContents.send('shortcut-toggle-torch');
+  });
+}
 
 app.whenReady().then(async () => {
   createWindow();
+  trayManager = new TrayManager(() => mainWindow);
+  trayManager.create();
+  trayManager.onCameraSwitch((id) => {
+    signalingServer?.sendCommand({ cmd: 'switchCamera', deviceId: id } as any);
+    mainWindow?.webContents.send('camera-switched', id);
+  });
+  registerShortcuts();
   try {
     await startServices();
   } catch (err) {
     console.error('[Main] startServices failed:', err);
   }
+  // Configure firewall on first run (non-blocking)
+  configureFirewall();
+});
+
+function configureFirewall() {
+  const { execFile } = require('child_process');
+  const ports = [SIGNALING_PORT, REST_API_PORT, WEBSOCKET_API_PORT, COMMAND_SERVER_PORT];
+  const names = ['Signaling', 'REST API', 'WebSocket', 'Command'];
+  ports.forEach((port, i) => {
+    execFile('netsh', [
+      'advfirewall', 'firewall', 'add', 'rule',
+      `name=PhoneBridge ${names[i]}`,
+      'dir=in', 'action=allow', 'protocol=TCP',
+      `localport=${port}`,
+    ], (err: any) => {
+      if (err) console.warn(`[Firewall] Rule for port ${port} may already exist or requires elevation`);
+    });
+  });
+}
+
+app.on('before-quit', () => {
+  (app as any).isQuitting = true;
+  globalShortcut.unregisterAll();
 });
 
 app.on('window-all-closed', () => {
@@ -214,8 +403,13 @@ app.on('window-all-closed', () => {
   mdnsAdvertiser?.stop();
   restServer?.stop();
   wsServer?.stop();
+  commandServer?.stop();
+  namedPipeServer?.stop();
+  computedSensors?.stop();
+  sensorReplayer?.stopReplay();
   virtualCamera?.destroy();
   virtualMic?.stop();
+  trayManager?.destroy();
   app.quit();
 });
 

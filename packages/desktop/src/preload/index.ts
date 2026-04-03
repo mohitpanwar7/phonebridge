@@ -71,4 +71,54 @@ contextBridge.exposeInMainWorld('phoneBridge', {
   onNFCReplayStatus: (callback: (status: { active: boolean; tagId?: string; tagName?: string }) => void) => {
     ipcRenderer.on('nfc-replay-status', (_event, status) => callback(status));
   },
+
+  // Settings
+  getLoginItem: () => ipcRenderer.invoke('get-login-item'),
+  setLoginItem: (enabled: boolean) => ipcRenderer.invoke('set-login-item', enabled),
+
+  // Export
+  exportSensorsCSV: () => ipcRenderer.invoke('export-sensors-csv'),
+  exportSensorsJSON: () => ipcRenderer.invoke('export-sensors-json'),
+
+  // Sensor Alerts
+  getAlertRules: () => ipcRenderer.invoke('get-alert-rules'),
+  setAlertRules: (rules: unknown[]) => ipcRenderer.invoke('set-alert-rules', rules),
+  onSensorAlertFired: (callback: (payload: { rule: unknown; value: number }) => void) => {
+    ipcRenderer.on('sensor-alert-fired', (_event, payload) => callback(payload));
+  },
+
+  // Webhook Relay
+  getWebhookConfigs: () => ipcRenderer.invoke('get-webhook-configs'),
+  setWebhookConfigs: (configs: unknown[]) => ipcRenderer.invoke('set-webhook-configs', configs),
+
+  // Computed Sensors
+  getComputedSensorDefs: () => ipcRenderer.invoke('get-computed-sensor-defs'),
+  setComputedSensorDefs: (defs: unknown[]) => ipcRenderer.invoke('set-computed-sensor-defs', defs),
+
+  // Sensor Recording / Replay
+  sensorRecordingStart: () => ipcRenderer.invoke('sensor-recording-start'),
+  sensorRecordingStop: () => ipcRenderer.invoke('sensor-recording-stop'),
+  sensorRecordingStatus: () => ipcRenderer.invoke('sensor-recording-status'),
+  sensorReplayStart: (recording: unknown) => ipcRenderer.invoke('sensor-replay-start', recording),
+  sensorReplayPause: () => ipcRenderer.invoke('sensor-replay-pause'),
+  sensorReplayResume: () => ipcRenderer.invoke('sensor-replay-resume'),
+  sensorReplayStop: () => ipcRenderer.invoke('sensor-replay-stop'),
+  sensorReplaySpeed: (speed: number) => ipcRenderer.invoke('sensor-replay-speed', speed),
+
+  // Shortcuts
+  onShortcutToggleMic: (callback: () => void) => {
+    ipcRenderer.on('shortcut-toggle-mic', () => callback());
+  },
+  onShortcutSnapshot: (callback: () => void) => {
+    ipcRenderer.on('shortcut-snapshot', () => callback());
+  },
+  onShortcutToggleTorch: (callback: () => void) => {
+    ipcRenderer.on('shortcut-toggle-torch', () => callback());
+  },
+  onCameraSwitched: (callback: (id: string) => void) => {
+    ipcRenderer.on('camera-switched', (_event, id) => callback(id));
+  },
+  onPhotoCaptured: (callback: (msg: unknown) => void) => {
+    ipcRenderer.on('photo-captured', (_event, msg) => callback(msg));
+  },
 });

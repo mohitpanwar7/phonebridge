@@ -50,6 +50,15 @@ export class SensorStore {
     return Array.from(this.latest.keys());
   }
 
+  getSensorNames(): string[] {
+    return Array.from(this.history.keys());
+  }
+
+  getHistoryWithTimestamps(sensor: string, limit = 100): Array<{ ts: number; data: SensorData }> {
+    const hist = this.history.get(sensor) || [];
+    return hist.slice(-limit).map((e) => ({ ts: e.timestamp, data: e.data }));
+  }
+
   subscribe(callback: (sensor: string, entry: SensorEntry) => void) {
     this.subscribers.add(callback);
     return () => this.subscribers.delete(callback);
