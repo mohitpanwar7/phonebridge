@@ -992,7 +992,7 @@ export default function Dashboard({ state, settings, videoRef, onSwitchCamera, o
           }}>📱</div>
           <div style={{ flex: 1 }}>
             <div style={{ fontSize: 15, fontWeight: 700, color: C.t1, letterSpacing: '-0.3px' }}>PhoneBridge</div>
-            <div style={{ fontSize: 10, color: C.t4 }}>v0.1.0</div>
+            <div style={{ fontSize: 10, color: C.t4 }}>v1.1.0</div>
           </div>
           {/* Notification bell + theme toggle */}
           <div style={{ display: 'flex', gap: 4 }}>

@@ -11,6 +11,7 @@ interface UseWebRTCOptions {
 
 export function useWebRTC({ onTrack }: UseWebRTCOptions = {}) {
   const pcRef = useRef<RTCPeerConnection | null>(null);
+  const dataChannelRef = useRef<RTCDataChannel | null>(null);
 
   // Audio pipeline for PC audio → phone
   const audioCtxRef = useRef<AudioContext | null>(null);
@@ -19,21 +20,30 @@ export function useWebRTC({ onTrack }: UseWebRTCOptions = {}) {
   const sysAudioStreamRef = useRef<MediaStream | null>(null);
   const sysAudioSenderRef = useRef<RTCRtpSender | null>(null);
 
+  // Stable ref for onTrack callback
+  const onTrackRef = useRef(onTrack);
+  onTrackRef.current = onTrack;
+
   const sendSignaling = useCallback((msg: unknown) => {
     window.phoneBridge?.sendSignaling(msg);
   }, []);
 
-  useEffect(() => {
-    const bridge = window.phoneBridge;
-    if (!bridge) return;
+  // Create a fresh RTCPeerConnection, tearing down any previous one
+  const createPeerConnection = useCallback(() => {
+    // Clean up old connection
+    if (pcRef.current) {
+      pcRef.current.close();
+      pcRef.current = null;
+    }
+    dataChannelRef.current = null;
 
     const pc = new RTCPeerConnection(RTC_CONFIG);
     pcRef.current = pc;
 
-    // Receive media tracks from phone
+    // Receive media tracks from phone (camera + mic)
     pc.ontrack = (event) => {
       if (event.streams[0]) {
-        onTrack?.(event.streams[0]);
+        onTrackRef.current?.(event.streams[0]);
       }
     };
 
@@ -49,26 +59,59 @@ export function useWebRTC({ onTrack }: UseWebRTCOptions = {}) {
       }
     };
 
+    // Handle data channel created by the phone
+    pc.ondatachannel = (event) => {
+      console.log('[WebRTC] Data channel received:', event.channel.label);
+      const dc = event.channel;
+      dataChannelRef.current = dc;
+
+      dc.onopen = () => {
+        console.log('[WebRTC] Data channel open');
+      };
+      dc.onmessage = (evt) => {
+        try {
+          const msg = JSON.parse(evt.data);
+          console.log('[WebRTC] Data channel message:', msg.type || msg.cmd || 'unknown');
+        } catch { /* ignore */ }
+      };
+      dc.onclose = () => {
+        console.log('[WebRTC] Data channel closed');
+        dataChannelRef.current = null;
+      };
+    };
+
     pc.onconnectionstatechange = () => {
       console.log('[WebRTC] Connection state:', pc.connectionState);
     };
 
+    return pc;
+  }, [sendSignaling]);
+
+  useEffect(() => {
+    const bridge = window.phoneBridge;
+    if (!bridge) return;
+
+    // Create initial peer connection
+    createPeerConnection();
+
     // Handle signaling messages from the phone (relayed by main process)
     const handleSignaling = async (msg: any) => {
-      if (!pcRef.current) return;
-
       try {
         if (msg.type === 'offer') {
+          // On new offer, create a fresh peer connection to handle reconnections
+          const pc = createPeerConnection();
           await pc.setRemoteDescription(new RTCSessionDescription({ type: 'offer', sdp: msg.sdp }));
           const answer = await pc.createAnswer();
           await pc.setLocalDescription(answer);
           sendSignaling({ type: 'answer', sdp: answer.sdp });
         } else if (msg.type === 'candidate' && msg.candidate) {
-          await pc.addIceCandidate(new RTCIceCandidate({
-            candidate: msg.candidate,
-            sdpMid: msg.sdpMid,
-            sdpMLineIndex: msg.sdpMLineIndex,
-          }));
+          if (pcRef.current && pcRef.current.remoteDescription) {
+            await pcRef.current.addIceCandidate(new RTCIceCandidate({
+              candidate: msg.candidate,
+              sdpMid: msg.sdpMid,
+              sdpMLineIndex: msg.sdpMLineIndex,
+            }));
+          }
         }
       } catch (err) {
         console.error('[WebRTC] Signaling error:', err);
@@ -79,8 +122,9 @@ export function useWebRTC({ onTrack }: UseWebRTCOptions = {}) {
 
     return () => {
       stopSystemAudio();
-      pc.close();
+      pcRef.current?.close();
       pcRef.current = null;
+      dataChannelRef.current = null;
     };
   }, []);
 
@@ -146,7 +190,9 @@ export function useWebRTC({ onTrack }: UseWebRTCOptions = {}) {
     sysAudioStreamRef.current?.getTracks().forEach((t) => t.stop());
     sysAudioStreamRef.current = null;
     if (sysAudioSenderRef.current && pcRef.current) {
-      pcRef.current.removeTrack(sysAudioSenderRef.current);
+      try {
+        pcRef.current.removeTrack(sysAudioSenderRef.current);
+      } catch { /* pc may be closed */ }
       sysAudioSenderRef.current = null;
     }
     audioCtxRef.current?.close().catch(() => {});

@@ -222,11 +222,34 @@ export default function StreamScreen({ route, navigation }: Props) {
         }, 1000);
       });
 
-      let webrtcStarted = false;
+      // Listen for desktop commands on the WebSocket channel.
+      // The desktop sends commands (switchCamera, toggleMic, etc.) through
+      // the signaling WebSocket, not the WebRTC data channel.
+      signaling.onMessage((msg: any) => {
+        if ('cmd' in msg) {
+          handleDesktopCommand(msg);
+        }
+      });
+
       signaling.onStateChange(async (isConnected) => {
         setConnected(isConnected);
         if (!isConnected) {
           setStreaming(false);
+          // Clean up old WebRTC so a fresh one can be created on reconnect
+          if (webrtcRef.current) {
+            webrtcRef.current.stop();
+            webrtcRef.current = null;
+          }
+          if (sensorRef.current) {
+            sensorRef.current.stopAll();
+            sensorRef.current = null;
+          }
+          if (statusIntervalRef.current) {
+            clearInterval(statusIntervalRef.current);
+            statusIntervalRef.current = null;
+          }
+          setLocalStreamURL(null);
+          setQuality(null);
           Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning).catch(() => {});
           return;
         }
@@ -236,12 +259,13 @@ export default function StreamScreen({ route, navigation }: Props) {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
         connectionHistory.recordSuccess(ip, port, `PhoneBridge PC (${ip})`).catch(() => {});
 
-        if (webrtcStarted) return;
-        webrtcStarted = true;
         try {
           const webrtc = new WebRTCManager(signaling);
           webrtcRef.current = webrtc;
-          webrtc.onDataChannelMessage((msg) => handleDesktopCommand(msg));
+          // Also listen on data channel for commands (redundant path for low-latency)
+          webrtc.onDataChannelMessage((msg) => {
+            if ('cmd' in msg) handleDesktopCommand(msg);
+          });
           await webrtc.start();
           webrtc.startQualityMonitor((q) => setQuality(q));
 

@@ -1,6 +1,7 @@
 import express from 'express';
 import type { Server } from 'http';
 import { SensorStore } from '../SensorStore';
+import type { NFCStore } from '../NFCStore';
 
 export class RestServer {
   private app = express();
@@ -8,7 +9,8 @@ export class RestServer {
 
   constructor(
     private port: number,
-    private sensorStore: SensorStore
+    private sensorStore: SensorStore,
+    private nfcStore?: NFCStore,
   ) {
     this.setupRoutes();
   }
@@ -54,9 +56,39 @@ export class RestServer {
     this.app.get('/api/status', (_req, res) => {
       res.json({
         app: 'PhoneBridge',
-        version: '0.1.0',
+        version: '1.1.0',
         sensors: this.sensorStore.getAvailableSensors(),
       });
+    });
+
+    // ── NFC endpoints ──────────────────────────────────────────────────────
+    this.app.get('/api/nfc/tags', (_req, res) => {
+      if (!this.nfcStore) {
+        res.json({ tags: [] });
+        return;
+      }
+      res.json({ tags: this.nfcStore.getAllTags() });
+    });
+
+    this.app.get('/api/nfc/tags/:id', (req, res) => {
+      if (!this.nfcStore) {
+        res.status(404).json({ error: 'NFC store not available' });
+        return;
+      }
+      const tag = this.nfcStore.getTag(req.params.id);
+      if (!tag) {
+        res.status(404).json({ error: `NFC tag '${req.params.id}' not found` });
+        return;
+      }
+      res.json(tag);
+    });
+
+    this.app.get('/api/nfc/last-scanned', (_req, res) => {
+      if (!this.nfcStore) {
+        res.json({ tag: null });
+        return;
+      }
+      res.json({ tag: this.nfcStore.getLastScanned() });
     });
   }
 

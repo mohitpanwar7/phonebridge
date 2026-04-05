@@ -163,7 +163,7 @@ async function startServices() {
   }
 
   try {
-    restServer = new RestServer(REST_API_PORT, sensorStore);
+    restServer = new RestServer(REST_API_PORT, sensorStore, nfcStore);
     restServer.start();
   } catch (e) { console.warn('[Main] REST server failed:', e); }
 
