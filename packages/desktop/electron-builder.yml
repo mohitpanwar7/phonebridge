@@ -12,7 +12,14 @@ files:
   - out/**/*
   - package.json
 
+extraResources:
+  - from: resources/icon.ico
+    to: icon.ico
+  - from: resources/icon.png
+    to: icon.png
+
 win:
+  icon: resources/icon.ico
   target:
     - target: nsis
       arch: [x64]

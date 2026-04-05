@@ -32,6 +32,14 @@ export class SignalingServer {
   start() {
     this.wss = new WebSocketServer({ port: this.port });
 
+    this.wss.on('error', (err: NodeJS.ErrnoException) => {
+      if (err.code === 'EADDRINUSE') {
+        console.error(`[Signaling] Port ${this.port} is already in use. Is another instance running?`);
+      } else {
+        console.error('[Signaling] Server error:', err);
+      }
+    });
+
     this.wss.on('connection', (ws) => {
       console.log('[Signaling] Phone connected');
       this.phoneSocket = ws;

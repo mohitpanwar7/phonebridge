@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, globalShortcut } from 'electron';
+import { app, BrowserWindow, ipcMain, globalShortcut, dialog } from 'electron';
 import { join } from 'path';
 import { SignalingServer } from './SignalingServer';
 import { MDNSAdvertiser } from './MDNSAdvertiser';
@@ -27,6 +27,27 @@ import {
 } from '@phonebridge/shared';
 
 const COMMAND_SERVER_PORT = 8422;
+
+// ── Single Instance Lock ─────────────────────────────────────────────────────
+// Prevent multiple instances from starting and binding to the same ports.
+const gotLock = app.requestSingleInstanceLock();
+if (!gotLock) {
+  // Another instance is already running — quit immediately
+  app.quit();
+  process.exit(0);
+}
+
+// Resolve icon path — works both in dev and after packaging
+function getIconPath(): string {
+  // In packaged app: resources/icon.ico sits next to app.asar
+  // In dev: resources/icon.ico is relative to __dirname (out/main/)
+  const devPath = join(__dirname, '../../resources/icon.ico');
+  const prodPath = join(process.resourcesPath, 'icon.ico');
+  const fs = require('fs');
+  if (fs.existsSync(prodPath)) return prodPath;
+  if (fs.existsSync(devPath)) return devPath;
+  return devPath; // fallback
+}
 
 let mainWindow: BrowserWindow | null = null;
 let signalingServer: SignalingServer;
@@ -60,6 +81,7 @@ function createWindow() {
     minWidth: 800,
     minHeight: 600,
     title: APP_NAME,
+    icon: getIconPath(),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       contextIsolation: true,
@@ -130,41 +152,54 @@ async function startServices() {
   }, nfcStore);
   signalingServer.setSensorAlerts(sensorAlerts);
   signalingServer.setWebhookRelay(webhookRelay);
-  signalingServer.start();
+
+  try { signalingServer.start(); } catch (e) {
+    console.error('[Main] SignalingServer failed:', e);
+  }
 
   mdnsAdvertiser = new MDNSAdvertiser(SIGNALING_PORT);
-  mdnsAdvertiser.start();
+  try { mdnsAdvertiser.start(); } catch (e) {
+    console.warn('[Main] mDNS advertiser failed (discovery will not work):', e);
+  }
 
-  restServer = new RestServer(REST_API_PORT, sensorStore);
-  restServer.start();
+  try {
+    restServer = new RestServer(REST_API_PORT, sensorStore);
+    restServer.start();
+  } catch (e) { console.warn('[Main] REST server failed:', e); }
 
-  wsServer = new SensorWebSocketServer(WEBSOCKET_API_PORT, sensorStore);
-  wsServer.start();
+  try {
+    wsServer = new SensorWebSocketServer(WEBSOCKET_API_PORT, sensorStore);
+    wsServer.start();
+  } catch (e) { console.warn('[Main] Sensor WS server failed:', e); }
 
   // ── OBS/StreamDeck command server ────────────────────────────────────────────
-  commandServer = new CommandServer(COMMAND_SERVER_PORT);
-  commandServer.register('switchCamera', (cmd: any) => {
-    signalingServer?.sendCommand({ cmd: 'switchCamera', deviceId: cmd.deviceId } as any);
-    mainWindow?.webContents.send('camera-switched', cmd.deviceId);
-  });
-  commandServer.register('toggleMic', () => {
-    mainWindow?.webContents.send('shortcut-toggle-mic');
-  });
-  commandServer.register('snapshot', () => {
-    mainWindow?.webContents.send('shortcut-snapshot');
-  });
-  commandServer.register('toggleTorch', () => {
-    mainWindow?.webContents.send('shortcut-toggle-torch');
-  });
-  commandServer.register('setZoom', (cmd: any) => {
-    signalingServer?.sendCommand({ cmd: 'setZoom', level: cmd.level } as any);
-  });
-  commandServer.start();
+  try {
+    commandServer = new CommandServer(COMMAND_SERVER_PORT);
+    commandServer.register('switchCamera', (cmd: any) => {
+      signalingServer?.sendCommand({ cmd: 'switchCamera', deviceId: cmd.deviceId } as any);
+      mainWindow?.webContents.send('camera-switched', cmd.deviceId);
+    });
+    commandServer.register('toggleMic', () => {
+      mainWindow?.webContents.send('shortcut-toggle-mic');
+    });
+    commandServer.register('snapshot', () => {
+      mainWindow?.webContents.send('shortcut-snapshot');
+    });
+    commandServer.register('toggleTorch', () => {
+      mainWindow?.webContents.send('shortcut-toggle-torch');
+    });
+    commandServer.register('setZoom', (cmd: any) => {
+      signalingServer?.sendCommand({ cmd: 'setZoom', level: cmd.level } as any);
+    });
+    commandServer.start();
+  } catch (e) { console.warn('[Main] Command server failed:', e); }
 
   // Named pipe server (for Unity/Unreal integration) — Windows only
   if (process.platform === 'win32') {
-    namedPipeServer = new NamedPipeServer(sensorStore);
-    namedPipeServer.start();
+    try {
+      namedPipeServer = new NamedPipeServer(sensorStore);
+      namedPipeServer.start();
+    } catch (e) { console.warn('[Main] Named pipe server failed:', e); }
   }
 
   const localIP = getLocalIP();
@@ -359,6 +394,15 @@ function registerShortcuts() {
   });
 }
 
+// When a second instance tries to launch, show the existing window instead
+app.on('second-instance', () => {
+  if (mainWindow) {
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    if (!mainWindow.isVisible()) mainWindow.show();
+    mainWindow.focus();
+  }
+});
+
 app.whenReady().then(async () => {
   createWindow();
   trayManager = new TrayManager(() => mainWindow);
@@ -372,6 +416,10 @@ app.whenReady().then(async () => {
     await startServices();
   } catch (err) {
     console.error('[Main] startServices failed:', err);
+    dialog.showErrorBox(
+      'PhoneBridge — Startup Error',
+      `Some services failed to start:\n${(err as Error).message}\n\nThe app may work with reduced functionality.`
+    );
   }
   // Configure firewall on first run (non-blocking)
   configureFirewall();
@@ -396,6 +444,17 @@ function configureFirewall() {
 app.on('before-quit', () => {
   (app as any).isQuitting = true;
   globalShortcut.unregisterAll();
+  // Clean up all servers before quit
+  signalingServer?.stop();
+  mdnsAdvertiser?.stop();
+  restServer?.stop();
+  wsServer?.stop();
+  commandServer?.stop();
+  namedPipeServer?.stop();
+  computedSensors?.stop();
+  sensorReplayer?.stopReplay();
+  virtualCamera?.destroy();
+  virtualMic?.stop();
 });
 
 app.on('window-all-closed', () => {

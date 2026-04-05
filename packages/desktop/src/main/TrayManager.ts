@@ -13,15 +13,19 @@ export class TrayManager {
   ) {}
 
   create() {
-    // Use a small 16x16 icon; fall back to an empty image if not found
+    // Try to use the app icon first, fall back to generated SVG dot
     let icon: Electron.NativeImage;
+    const fs = require('fs');
+    const prodIconPath = join(process.resourcesPath, 'icon.ico');
+    const devIconPath = join(__dirname, '../../resources/icon.ico');
+    const iconPath = fs.existsSync(prodIconPath) ? prodIconPath : devIconPath;
+
     try {
-      icon = nativeImage.createFromPath(join(__dirname, '../../resources/tray-disconnected.png'));
+      icon = nativeImage.createFromPath(iconPath);
     } catch {
       icon = nativeImage.createEmpty();
     }
     if (icon.isEmpty()) {
-      // Create a simple 16x16 placeholder icon (purple dot)
       icon = nativeImage.createFromDataURL(this.makeTrayIconDataURL(false));
     }
 
