@@ -12,11 +12,13 @@
     "package": "electron-builder"
   },
   "dependencies": {
-    "naudiodon": "^2.0.0",
     "@phonebridge/shared": "workspace:*",
     "bonjour-service": "^1.2.1",
     "bufferutil": "^4.1.0",
     "express": "^4.18.2",
+    "lucide-react": "^1.7.0",
+    "naudiodon": "^2.0.0",
+    "opusscript": "^0.1.1",
     "qrcode": "^1.5.3",
     "utf-8-validate": "^6.0.6",
     "uuid": "^9.0.0",

@@ -10,7 +10,7 @@ import NFCScreen from './screens/NFCScreen';
 export type RootStackParamList = {
   Onboarding: undefined;
   Home: undefined;
-  Stream: { ip: string; port: number; sessionId?: string };
+  Stream: { ip: string; port: number; sessionId?: string; wsUrl?: string };
   Settings: undefined;
   NFC: undefined;
 };

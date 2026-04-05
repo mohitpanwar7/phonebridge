@@ -1,41 +1,29 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import type { AppState, AppSettings } from '../App';
 import { NotificationPanel, type AppNotification } from './NotificationPanel';
+import TitleBar from './TitleBar';
+import { getTokens, cssGlass, type Tokens } from '../theme';
+import {
+  Smartphone, Sun, Moon, Camera, Mic, Flashlight, Lock, BarChart3,
+  Settings, Radio, Code, Globe, Zap, Battery, Compass, TrendingUp,
+  RotateCw, Thermometer, Lightbulb, Ruler, Footprints, RefreshCw,
+  MapPin, Film, Volume2, Copy, Bluetooth,
+} from 'lucide-react';
 
-// ─── Design tokens ──────────────────────────────────────────────────────────
-const C = {
-  bg: '#09090b',
-  surface: '#141417',
-  surface2: '#1c1c22',
-  surface3: '#27272a',
-  border: '#2e2e35',
-  border2: '#3f3f46',
-  accent: '#7c3aed',
-  accentHover: '#6d28d9',
-  accentL: '#a78bfa',
-  accentBg: 'rgba(124,58,237,0.12)',
-  accentBg2: 'rgba(167,139,250,0.08)',
-  green: '#22c55e',
-  greenBg: 'rgba(34,197,94,0.12)',
-  red: '#ef4444',
-  redBg: 'rgba(239,68,68,0.12)',
-  amber: '#f59e0b',
-  amberBg: 'rgba(245,158,11,0.12)',
-  blue: '#3b82f6',
-  blueBg: 'rgba(59,130,246,0.12)',
-  t1: '#f4f4f5',
-  t2: '#a1a1aa',
-  t3: '#71717a',
-  t4: '#52525b',
-  mono: '"JetBrains Mono","Fira Code","Courier New",monospace',
-};
+// ── Design tokens ──────────────────────────────────────────────────────────
+// Module-level variable updated each render so sub-components pick up the theme.
+let C: Tokens = getTokens('dark');
 
-// ─── Tiny helpers ────────────────────────────────────────────────────────────
+const FONT_FAMILY = "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
+
+// ── Tiny helpers ────────────────────────────────────────────────────────────
+
 const card = (extra?: React.CSSProperties): React.CSSProperties => ({
-  background: C.surface2,
-  borderRadius: 10,
+  background: C.surfaceRaised,
+  borderRadius: 14,
   border: `1px solid ${C.border}`,
   padding: '14px 16px',
+  boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
   ...extra,
 });
 
@@ -55,14 +43,14 @@ const row = (extra?: React.CSSProperties): React.CSSProperties => ({
   ...extra,
 });
 
-// ─── Sub-components ──────────────────────────────────────────────────────────
+// ── Sub-components ──────────────────────────────────────────────────────────
 
 function StatusBadge({ connected }: { connected: boolean }) {
   return (
     <div style={{
       display: 'inline-flex', alignItems: 'center', gap: 6,
       padding: '4px 10px', borderRadius: 20,
-      background: connected ? C.greenBg : C.surface3,
+      background: connected ? C.greenBg : C.surfaceRaised,
       border: `1px solid ${connected ? 'rgba(34,197,94,0.3)' : C.border}`,
       fontSize: 12, fontWeight: 600,
       color: connected ? C.green : C.t3,
@@ -71,8 +59,9 @@ function StatusBadge({ connected }: { connected: boolean }) {
         width: 6, height: 6, borderRadius: '50%',
         background: connected ? C.green : C.t4,
         boxShadow: connected ? `0 0 6px ${C.green}` : 'none',
+        animation: connected ? 'statusPulse 2s ease-in-out infinite' : 'none',
       }} />
-      {connected ? 'Connected' : 'Waiting for phone…'}
+      {connected ? 'Connected' : 'Waiting for phone...'}
     </div>
   );
 }
@@ -86,17 +75,18 @@ function DeviceBtn({
 }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
   return (
     <button onClick={onClick} style={{
-      width: '100%', textAlign: 'left', padding: '9px 12px',
-      borderRadius: 7, border: `1px solid ${active ? C.accentL + '40' : 'transparent'}`,
+      width: '100%', textAlign: 'left', padding: '10px 14px',
+      borderRadius: 10, border: `1px solid ${active ? C.accentLight + '40' : 'transparent'}`,
       background: active ? C.accentBg : 'transparent',
-      color: active ? C.accentL : C.t2,
+      color: active ? C.accentLight : C.t2,
       fontSize: 13, fontWeight: active ? 600 : 400,
-      cursor: 'pointer', transition: 'all 0.12s',
+      cursor: 'pointer', transition: 'all 0.15s ease',
       display: 'flex', alignItems: 'center', gap: 8,
+      fontFamily: FONT_FAMILY,
     }}>
       <div style={{
         width: 6, height: 6, borderRadius: '50%', flexShrink: 0,
-        background: active ? C.accentL : C.t4,
+        background: active ? C.accentLight : C.t4,
       }} />
       {children}
     </button>
@@ -106,16 +96,16 @@ function DeviceBtn({
 function Toggle({ value, onChange }: { value: boolean; onChange: (v: boolean) => void }) {
   return (
     <div onClick={() => onChange(!value)} style={{
-      width: 36, height: 20, borderRadius: 10, cursor: 'pointer', flexShrink: 0,
-      background: value ? C.accent : C.surface3,
-      border: `1px solid ${value ? C.accentL + '40' : C.border}`,
-      position: 'relative', transition: 'all 0.15s',
+      width: 40, height: 22, borderRadius: 11, cursor: 'pointer', flexShrink: 0,
+      background: value ? C.accent : C.surfaceRaised,
+      border: `1px solid ${value ? C.accentLight + '40' : C.border}`,
+      position: 'relative', transition: 'all 0.15s ease',
     }}>
       <div style={{
-        position: 'absolute', top: 2, left: value ? 18 : 2,
-        width: 14, height: 14, borderRadius: '50%',
-        background: value ? C.accentL : C.t4,
-        transition: 'left 0.15s',
+        position: 'absolute', top: 2, left: value ? 20 : 2,
+        width: 16, height: 16, borderRadius: '50%',
+        background: value ? C.accentLight : C.t4,
+        transition: 'left 0.15s ease',
       }} />
     </div>
   );
@@ -130,9 +120,10 @@ function Select<T extends string | number>({
       const match = options.find((o) => String(o.v) === raw);
       if (match) onChange(match.v);
     }} style={{
-      background: C.surface3, border: `1px solid ${C.border}`,
+      background: C.surfaceRaised, border: `1px solid ${C.border}`,
       borderRadius: 6, padding: '5px 8px', color: C.t1,
       fontSize: 12, cursor: 'pointer', outline: 'none',
+      fontFamily: FONT_FAMILY, transition: 'all 0.15s ease',
     }}>
       {options.map((o) => (
         <option key={String(o.v)} value={String(o.v)}>{o.label}</option>
@@ -153,20 +144,20 @@ function SettingRow({ label: lbl, children }: { label: string; children: React.R
   );
 }
 
-function SectionHeader({ icon, title }: { icon: string; title: string }) {
+function SectionHeader({ icon, title }: { icon: React.ReactNode; title: string }) {
   return (
     <div style={{
       fontSize: 11, fontWeight: 700, letterSpacing: '0.06em',
-      textTransform: 'uppercase', color: C.accentL,
+      textTransform: 'uppercase', color: C.accentLight,
       display: 'flex', alignItems: 'center', gap: 6,
       marginTop: 16, marginBottom: 4,
     }}>
-      <span>{icon}</span>{title}
+      <span style={{ display: 'inline-flex', alignItems: 'center' }}>{icon}</span>{title}
     </div>
   );
 }
 
-// ─── STATS OVERLAY ───────────────────────────────────────────────────────────
+// ── STATS OVERLAY ───────────────────────────────────────────────────────────
 
 interface StreamStats {
   fps: number;
@@ -215,17 +206,17 @@ function StatsOverlay({ videoRef, visible }: { videoRef: React.RefObject<HTMLVid
       position: 'absolute', top: 12, right: 12,
       background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(6px)',
       borderRadius: 8, padding: '6px 10px',
-      fontSize: 11, fontFamily: C.mono, color: C.accentL,
+      fontSize: 11, fontFamily: C.mono, color: C.accentLight,
       display: 'flex', flexDirection: 'column', gap: 2,
       lineHeight: 1.5,
     }}>
       <div>{stats.fps} fps</div>
-      {stats.resolutionW > 0 && <div>{stats.resolutionW}×{stats.resolutionH}</div>}
+      {stats.resolutionW > 0 && <div>{stats.resolutionW}x{stats.resolutionH}</div>}
     </div>
   );
 }
 
-// ─── VU METER ────────────────────────────────────────────────────────────────
+// ── VU METER ────────────────────────────────────────────────────────────────
 
 function VUMeter({ stream }: { stream: MediaStream | null }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -272,12 +263,12 @@ function VUMeter({ stream }: { stream: MediaStream | null }) {
       ref={canvasRef}
       width={8}
       height={80}
-      style={{ borderRadius: 4, background: C.surface3 }}
+      style={{ borderRadius: 4, background: C.surfaceRaised }}
     />
   );
 }
 
-// ─── SENSOR SPARKLINE ────────────────────────────────────────────────────────
+// ── SENSOR SPARKLINE ────────────────────────────────────────────────────────
 
 function Sparkline({ values, color }: { values: number[]; color?: string }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -292,7 +283,7 @@ function Sparkline({ values, color }: { values: number[]; color?: string }) {
     const max = Math.max(...values);
     const range = max - min || 1;
     ctx.beginPath();
-    ctx.strokeStyle = color ?? C.accentL;
+    ctx.strokeStyle = color ?? C.accentLight;
     ctx.lineWidth = 1.5;
     ctx.lineJoin = 'round';
     values.forEach((v, i) => {
@@ -305,7 +296,7 @@ function Sparkline({ values, color }: { values: number[]; color?: string }) {
   return <canvas ref={canvasRef} width={80} height={24} style={{ display: 'block' }} />;
 }
 
-// ─── SENSORS TAB ─────────────────────────────────────────────────────────────
+// ── SENSORS TAB ─────────────────────────────────────────────────────────────
 
 function extractNumericValue(sensor: string, data: any): number | null {
   if (!data) return null;
@@ -323,15 +314,22 @@ function extractNumericValue(sensor: string, data: any): number | null {
   }
 }
 
-const SENSOR_ICONS: Record<string, string> = {
-  gps: '📍', accelerometer: '↗', gyroscope: '🌀',
-  magnetometer: '🧭', barometer: '🌡', light: '💡',
-  proximity: '📏', pedometer: '👣', gravity: '🌍',
-  rotation: '🔄', battery: '🔋',
+const SENSOR_ICONS: Record<string, React.ReactNode> = {
+  gps: <MapPin size={14} />,
+  accelerometer: <TrendingUp size={14} />,
+  gyroscope: <RotateCw size={14} />,
+  magnetometer: <Compass size={14} />,
+  barometer: <Thermometer size={14} />,
+  light: <Lightbulb size={14} />,
+  proximity: <Ruler size={14} />,
+  pedometer: <Footprints size={14} />,
+  gravity: <Globe size={14} />,
+  rotation: <RefreshCw size={14} />,
+  battery: <Battery size={14} />,
 };
 
 function formatSensor(sensor: string, data: any): string {
-  if (!data) return '—';
+  if (!data) return '\u2014';
   switch (sensor) {
     case 'gps': return `${data.latitude?.toFixed(5)}, ${data.longitude?.toFixed(5)}`;
     case 'accelerometer':
@@ -341,9 +339,9 @@ function formatSensor(sensor: string, data: any): string {
     case 'rotation': return `x:${data.x?.toFixed(2)} y:${data.y?.toFixed(2)} z:${data.z?.toFixed(2)}`;
     case 'barometer': return `${data.pressure?.toFixed(2)} hPa`;
     case 'light': return `${data.illuminance?.toFixed(0)} lux`;
-    case 'proximity': return data.isNear ? '● Near' : '○ Far';
+    case 'proximity': return data.isNear ? '\u25CF Near' : '\u25CB Far';
     case 'pedometer': return `${data.steps?.toLocaleString()} steps`;
-    case 'battery': return `${(data.level * 100).toFixed(0)}% ${data.isCharging ? '⚡' : ''}`;
+    case 'battery': return `${(data.level * 100).toFixed(0)}%${data.isCharging ? ' charging' : ''}`;
     default: return JSON.stringify(data);
   }
 }
@@ -368,8 +366,9 @@ function SensorsTab({ sensorData }: { sensorData: Record<string, { data: any; ti
   const entries = Object.entries(sensorData);
 
   const exportBtnStyle: React.CSSProperties = {
-    background: C.surface3, border: `1px solid ${C.border}`,
+    background: C.surfaceRaised, border: `1px solid ${C.border}`,
     borderRadius: 6, color: C.t2, padding: '5px 12px', fontSize: 12, cursor: 'pointer',
+    fontFamily: FONT_FAMILY, transition: 'all 0.15s ease',
   };
 
   return (
@@ -389,11 +388,12 @@ function SensorsTab({ sensorData }: { sensorData: Record<string, { data: any; ti
     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 8, padding: 4 }}>
       {entries.map(([sensor, entry]) => (
         <div key={sensor} style={{
-          background: C.surface3, borderRadius: 8,
+          background: C.surfaceRaised, borderRadius: 10,
           border: `1px solid ${C.border}`, padding: '10px 12px',
+          boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
         }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
-            <span style={{ fontSize: 14 }}>{SENSOR_ICONS[sensor] ?? '📊'}</span>
+            <span style={{ fontSize: 14, color: C.t3, display: 'inline-flex', alignItems: 'center' }}>{SENSOR_ICONS[sensor] ?? <BarChart3 size={14} />}</span>
             <span style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: C.t3 }}>
               {sensor}
             </span>
@@ -419,9 +419,9 @@ function SensorsTab({ sensorData }: { sensorData: Record<string, { data: any; ti
   );
 }
 
-// ─── SETTINGS TAB ────────────────────────────────────────────────────────────
+// ── SETTINGS TAB ────────────────────────────────────────────────────────────
 
-function DriverBadge({ ready, label }: { ready: boolean; label: string }) {
+function DriverBadge({ ready, label: badgeLabel }: { ready: boolean; label: string }) {
   return (
     <div style={{
       display: 'flex', alignItems: 'center', gap: 6,
@@ -435,7 +435,7 @@ function DriverBadge({ ready, label }: { ready: boolean; label: string }) {
         background: ready ? C.green : C.amber,
         boxShadow: ready ? `0 0 4px ${C.green}` : 'none',
       }} />
-      {label}: {ready ? 'Ready' : 'Not installed'}
+      {badgeLabel}: {ready ? 'Ready' : 'Not installed'}
     </div>
   );
 }
@@ -488,7 +488,7 @@ function SettingsTab({
 
   return (
     <div style={{ padding: '4px 8px', overflowY: 'auto', maxHeight: '100%' }}>
-      <SectionHeader icon="🎬" title="Video" />
+      <SectionHeader icon={<Film size={14} />} title="Video" />
       <div style={card({ padding: '6px 14px', marginBottom: 8 })}>
         <SettingRow label="Resolution">
           <Select value={settings.video.resolution} onChange={(v) => setVideo({ resolution: v })}
@@ -508,7 +508,7 @@ function SettingsTab({
         </SettingRow>
       </div>
 
-      <SectionHeader icon="🎙" title="Audio" />
+      <SectionHeader icon={<Mic size={14} />} title="Audio" />
       <div style={card({ padding: '6px 14px', marginBottom: 8 })}>
         <SettingRow label="Microphone">
           <Toggle value={settings.audio.enabled} onChange={(v) => setAudio({ enabled: v })} />
@@ -527,13 +527,13 @@ function SettingsTab({
         <SettingRow label="Echo Cancellation">
           <Toggle value={settings.audio.echoCancellation} onChange={(v) => setAudio({ echoCancellation: v })} />
         </SettingRow>
-        <SettingRow label="PC → Phone Speaker">
+        <SettingRow label="PC -> Phone Speaker">
           <Select value={settings.audio.speakerOutput} onChange={(v) => setAudio({ speakerOutput: v })}
             options={[{ v: 'disabled', label: 'Disabled' }, { v: 'vbcable', label: 'VB-Cable (install required)' }]} />
         </SettingRow>
       </div>
 
-      <SectionHeader icon="🔊" title="PC Audio → Phone" />
+      <SectionHeader icon={<Volume2 size={14} />} title="PC Audio -> Phone" />
       <div style={card({ padding: '6px 14px', marginBottom: 8 })}>
         <SettingRow label="System Audio">
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -548,15 +548,16 @@ function SettingsTab({
               }}
               style={{
                 background: sysAudioActive ? C.redBg : C.accentBg,
-                color: sysAudioActive ? C.red : C.accentL,
-                border: `1px solid ${sysAudioActive ? C.red : C.accentL}40`,
+                color: sysAudioActive ? C.red : C.accentLight,
+                border: `1px solid ${sysAudioActive ? C.red : C.accentLight}40`,
                 borderRadius: 6, padding: '3px 10px', fontSize: 11, cursor: 'pointer',
+                fontFamily: FONT_FAMILY, transition: 'all 0.15s ease',
               }}>
               {sysAudioActive ? 'Stop' : 'Start'}
             </button>
           </div>
         </SettingRow>
-        <SettingRow label={`Gain: ${gainValue.toFixed(1)}×`}>
+        <SettingRow label={`Gain: ${gainValue.toFixed(1)}x`}>
           <input
             type="range" min={0} max={3} step={0.1} value={gainValue}
             onChange={(e) => {
@@ -578,14 +579,14 @@ function SettingsTab({
         </SettingRow>
       </div>
 
-      <SectionHeader icon="📡" title="Sensors" />
+      <SectionHeader icon={<Radio size={14} />} title="Sensors" />
       <div style={card({ padding: '6px 14px', marginBottom: 8 })}>
         {sensorList.map(([sensor, cfg]) => (
           <div key={sensor} style={{
             display: 'flex', alignItems: 'center', gap: 10,
             padding: '7px 0', borderBottom: `1px solid ${C.border}`,
           }}>
-            <span style={{ fontSize: 14, width: 20 }}>{SENSOR_ICONS[sensor] ?? '📊'}</span>
+            <span style={{ fontSize: 14, width: 20, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', color: C.t3 }}>{SENSOR_ICONS[sensor] ?? <BarChart3 size={14} />}</span>
             <span style={{ flex: 1, fontSize: 13, color: C.t2, textTransform: 'capitalize' }}>{sensor}</span>
             <Select value={cfg.intervalMs} onChange={(v) => setSensor(sensor, { intervalMs: v })}
               options={rateOptions} />
@@ -594,7 +595,7 @@ function SettingsTab({
         ))}
       </div>
 
-      <SectionHeader icon="📷" title="Virtual Drivers" />
+      <SectionHeader icon={<Camera size={14} />} title="Virtual Drivers" />
       <div style={card({ padding: '10px 14px', marginBottom: 8 })}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           <DriverBadge ready={driverStatus.softcamReady} label="Virtual Webcam (Softcam)" />
@@ -603,10 +604,28 @@ function SettingsTab({
         {(!driverStatus.softcamReady || !driverStatus.vbCableReady) && (
           <div style={{ fontSize: 11, color: C.t4, lineHeight: 1.6, marginTop: 10 }}>
             {!driverStatus.softcamReady && (
-              <div>• Softcam: build the addon and run the app to install the DirectShow filter.</div>
+              <div>Softcam: build the addon and run the app to install the DirectShow filter.</div>
             )}
             {!driverStatus.vbCableReady && (
-              <div>• VB-Cable: install from vb-audio.com/Cable then restart PhoneBridge.</div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                <span>VB-Cable: not installed.</span>
+                <button onClick={async () => {
+                  try {
+                    const result = await (window as any).phoneBridge?.installVBCable?.();
+                    if (result && !result.success) {
+                      console.warn('[VBCable]', result.message);
+                    }
+                  } catch (err) {
+                    console.error('[VBCable] Install failed:', err);
+                  }
+                }} style={{
+                  background: C.accent, color: '#fff', border: 'none', borderRadius: 5,
+                  padding: '3px 10px', fontSize: 11, fontWeight: 600, cursor: 'pointer',
+                  fontFamily: FONT_FAMILY, transition: 'all 0.15s ease',
+                }}>
+                  Install VB-Cable
+                </button>
+              </div>
             )}
           </div>
         )}
@@ -615,7 +634,7 @@ function SettingsTab({
   );
 }
 
-// ─── NFC TAB ─────────────────────────────────────────────────────────────────
+// ── NFC TAB ─────────────────────────────────────────────────────────────────
 
 import type { NFCTag, NFCNdefRecord } from '@phonebridge/shared';
 
@@ -633,7 +652,7 @@ function NFCTagRow({ tag, onStartScan, onReplay }: {
       >
         <div style={{
           fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 8,
-          background: C.accentBg, color: C.accentL, border: `1px solid ${C.accentL}30`,
+          background: C.accentBg, color: C.accentLight, border: `1px solid ${C.accentLight}30`,
         }}>{tag.tagType}</div>
         <div style={{ flex: 1 }}>
           <div style={{ fontSize: 13, fontWeight: 600, color: C.t1 }}>{tag.name}</div>
@@ -642,10 +661,11 @@ function NFCTagRow({ tag, onStartScan, onReplay }: {
         {tag.canEmulate && (
           <button onClick={(e) => { e.stopPropagation(); onReplay(tag); }} style={{
             fontSize: 11, padding: '3px 10px', borderRadius: 6, border: 'none', cursor: 'pointer',
-            background: C.accentBg, color: C.accentL,
+            background: C.accentBg, color: C.accentLight,
+            fontFamily: FONT_FAMILY, transition: 'all 0.15s ease',
           }}>Replay</button>
         )}
-        <span style={{ color: C.t4, fontSize: 12 }}>{expanded ? '▲' : '▼'}</span>
+        <span style={{ color: C.t4, fontSize: 12 }}>{expanded ? '\u25B2' : '\u25BC'}</span>
       </div>
       {expanded && (
         <div style={{ marginTop: 8, padding: '8px 12px', background: C.bg, borderRadius: 6 }}>
@@ -722,30 +742,32 @@ function NFCTab() {
   return (
     <div style={{ padding: '4px 8px', overflowY: 'auto', maxHeight: '100%' }}>
       {/* Scan control */}
-      <SectionHeader icon="📡" title="Live Scan" />
+      <SectionHeader icon={<Radio size={14} />} title="Live Scan" />
       <div style={card({ padding: '10px 14px', marginBottom: 8 })}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: lastScanned ? 10 : 0 }}>
           {!scanning ? (
             <button onClick={startScan} style={{
               background: C.accent, color: '#fff', border: 'none', borderRadius: 6,
               padding: '7px 16px', fontSize: 12, fontWeight: 600, cursor: 'pointer',
+              fontFamily: FONT_FAMILY, transition: 'all 0.15s ease',
             }}>Start Scan on Phone</button>
           ) : (
             <button onClick={stopScan} style={{
-              background: C.surface3, color: C.t2, border: `1px solid ${C.border}`, borderRadius: 6,
+              background: C.surfaceRaised, color: C.t2, border: `1px solid ${C.border}`, borderRadius: 6,
               padding: '7px 16px', fontSize: 12, fontWeight: 600, cursor: 'pointer',
+              fontFamily: FONT_FAMILY, transition: 'all 0.15s ease',
             }}>Stop Scan</button>
           )}
           {scanning && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: C.accentL }}>
-              <div style={{ width: 6, height: 6, borderRadius: '50%', background: C.accentL, boxShadow: `0 0 4px ${C.accentL}` }} />
-              Waiting for tag…
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: C.accentLight }}>
+              <div style={{ width: 6, height: 6, borderRadius: '50%', background: C.accentLight, boxShadow: `0 0 4px ${C.accentLight}` }} />
+              Waiting for tag...
             </div>
           )}
         </div>
         {lastScanned && (
           <div style={{ fontSize: 12, color: C.t2, background: C.bg, borderRadius: 6, padding: '8px 10px' }}>
-            <span style={{ color: C.green }}>✓</span> Last scanned: <strong style={{ color: C.t1 }}>{lastScanned.name}</strong>
+            <span style={{ color: C.green }}>&#10003;</span> Last scanned: <strong style={{ color: C.t1 }}>{lastScanned.name}</strong>
             <span style={{ color: C.t4, marginLeft: 8 }}>{lastScanned.uid}</span>
           </div>
         )}
@@ -754,7 +776,7 @@ function NFCTab() {
       {/* HCE Replay status */}
       {replayStatus.active && (
         <>
-          <SectionHeader icon="▶" title="Replay Active" />
+          <SectionHeader icon={<Zap size={14} />} title="Replay Active" />
           <div style={card({ padding: '10px 14px', background: C.greenBg, border: `1px solid ${C.green}40`, marginBottom: 8 })}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
               <div>
@@ -764,6 +786,7 @@ function NFCTab() {
               <button onClick={stopReplay} style={{
                 background: C.redBg, color: C.red, border: `1px solid ${C.red}40`,
                 borderRadius: 6, padding: '5px 12px', fontSize: 12, cursor: 'pointer',
+                fontFamily: FONT_FAMILY, transition: 'all 0.15s ease',
               }}>Stop</button>
             </div>
           </div>
@@ -771,26 +794,28 @@ function NFCTab() {
       )}
 
       {/* Write NDEF */}
-      <SectionHeader icon="✍" title="Write to Tag" />
+      <SectionHeader icon={<Code size={14} />} title="Write to Tag" />
       <div style={card({ padding: '10px 14px', marginBottom: 8 })}>
         <div style={{ display: 'flex', gap: 8 }}>
           <input
             value={writeText}
             onChange={(e) => setWriteText(e.target.value)}
-            placeholder="Text or URL to write…"
+            placeholder="Text or URL to write..."
             style={{
               flex: 1, background: C.bg, border: `1px solid ${C.border}`,
               borderRadius: 6, padding: '7px 10px', color: C.t1, fontSize: 12, outline: 'none',
+              fontFamily: FONT_FAMILY,
             }}
           />
           <button onClick={writeNdef} style={{
             background: C.accent, color: '#fff', border: 'none', borderRadius: 6,
             padding: '7px 14px', fontSize: 12, fontWeight: 600, cursor: 'pointer',
+            fontFamily: FONT_FAMILY, transition: 'all 0.15s ease',
           }}>Write</button>
         </div>
         {writeResult && (
           <div style={{ marginTop: 8, fontSize: 12, color: writeResult.ok ? C.green : C.red }}>
-            {writeResult.ok ? '✓ ' : '✗ '}{writeResult.msg}
+            {writeResult.ok ? '\u2713 ' : '\u2717 '}{writeResult.msg}
           </div>
         )}
         <div style={{ fontSize: 11, color: C.t4, marginTop: 6 }}>
@@ -799,11 +824,11 @@ function NFCTab() {
       </div>
 
       {/* Saved tags list */}
-      <SectionHeader icon="🏷" title={`Saved Tags (${tags.length})`} />
+      <SectionHeader icon={<Radio size={14} />} title={`Saved Tags (${tags.length})`} />
       <div style={card({ padding: '4px 14px', marginBottom: 8 })}>
         {tags.length === 0 ? (
           <div style={{ padding: '12px 0', fontSize: 12, color: C.t4, textAlign: 'center' }}>
-            No tags yet — scan your first NFC tag on the phone.
+            No tags yet -- scan your first NFC tag on the phone.
           </div>
         ) : (
           tags.map((tag) => (
@@ -815,7 +840,7 @@ function NFCTab() {
   );
 }
 
-// ─── API TAB ─────────────────────────────────────────────────────────────────
+// ── API TAB ─────────────────────────────────────────────────────────────────
 
 function APITab({ ip }: { ip: string }) {
   const host = ip || 'localhost';
@@ -833,14 +858,14 @@ function APITab({ ip }: { ip: string }) {
   const CodeBlock = ({ children }: { children: string }) => (
     <pre style={{
       background: C.bg, borderRadius: 6, padding: '8px 10px', margin: '6px 0 0',
-      fontSize: 11, fontFamily: C.mono, color: C.accentL,
+      fontSize: 11, fontFamily: C.mono, color: C.accentLight,
       border: `1px solid ${C.border}`, overflowX: 'auto',
     }}>{children}</pre>
   );
 
   return (
     <div style={{ padding: '4px 8px', overflowY: 'auto' }}>
-      <SectionHeader icon="🌐" title="REST API — port 8420" />
+      <SectionHeader icon={<Globe size={14} />} title="REST API -- port 8420" />
       <div style={card({ padding: '8px 14px', marginBottom: 8 })}>
         {endpoints.map((e, i) => (
           <div key={i} style={{ padding: '7px 0', borderBottom: i < endpoints.length - 1 ? `1px solid ${C.border}` : 'none' }}>
@@ -853,28 +878,28 @@ function APITab({ ip }: { ip: string }) {
         ))}
       </div>
 
-      <SectionHeader icon="⚡" title="WebSocket — port 8421" />
+      <SectionHeader icon={<Zap size={14} />} title="WebSocket -- port 8421" />
       <div style={card({ padding: '8px 14px', marginBottom: 8 })}>
         <CodeBlock>{`const ws = new WebSocket('ws://${host}:8421');\nws.onmessage = (e) => console.log(JSON.parse(e.data));`}</CodeBlock>
         <div style={{ marginTop: 10 }}>
           {wsEvents.map((e, i) => (
             <div key={i} style={{ display: 'flex', gap: 8, padding: '4px 0', fontSize: 12 }}>
-              <span style={{ fontFamily: C.mono, color: C.accentL, minWidth: 90 }}>"{e.event}"</span>
+              <span style={{ fontFamily: C.mono, color: C.accentLight, minWidth: 90 }}>"{e.event}"</span>
               <span style={{ color: C.t3 }}>{e.desc}</span>
             </div>
           ))}
         </div>
       </div>
 
-      <SectionHeader icon="🔗" title="Named Pipe (planned)" />
+      <SectionHeader icon={<Code size={14} />} title="Named Pipe (planned)" />
       <div style={card({ padding: '8px 14px', marginBottom: 8 })}>
         <div style={{ fontFamily: C.mono, fontSize: 11, color: C.t3 }}>
           {`\\\\.\\pipe\\phonebridge-sensors`}<br />
-          <span style={{ color: C.t4, marginTop: 4, display: 'block' }}>Binary MessagePack — for Unity / Unreal Engine</span>
+          <span style={{ color: C.t4, marginTop: 4, display: 'block' }}>Binary MessagePack -- for Unity / Unreal Engine</span>
         </div>
       </div>
 
-      <SectionHeader icon="🧠" title="Quick Example (Python)" />
+      <SectionHeader icon={<Globe size={14} />} title="Quick Example (Python)" />
       <div style={card({ padding: '6px 14px', marginBottom: 8 })}>
         <CodeBlock>{`import requests
 r = requests.get('http://${host}:8420/api/sensors/gps')
@@ -888,7 +913,7 @@ print(json.loads(ws.recv()))  # live sensor stream`}</CodeBlock>
   );
 }
 
-// ─── MAIN DASHBOARD ──────────────────────────────────────────────────────────
+// ── MAIN DASHBOARD ──────────────────────────────────────────────────────────
 
 interface Props {
   state: AppState;
@@ -916,6 +941,10 @@ interface Props {
 type BottomTab = 'sensors' | 'settings' | 'api' | 'nfc';
 
 export default function Dashboard({ state, settings, videoRef, onSwitchCamera, onSwitchMic, onSettingsChange, onTorch, onZoom, onCommand, onStartSystemAudio, onStopSystemAudio, onSetGain, onSetNoiseGate, videoEffects, onVideoEffects, onSnapshot, notifications, onClearNotifications, themeMode, onThemeToggle }: Props) {
+  // Update module-level C so sub-components pick up the theme
+  const mode = themeMode ?? 'dark';
+  C = getTokens(mode);
+
   const [bottomTab, setBottomTab] = useState<BottomTab>('sensors');
   const [bottomHeight, setBottomHeight] = useState(260);
   const [torchEnabled, setTorchEnabled] = useState(false);
@@ -930,6 +959,10 @@ export default function Dashboard({ state, settings, videoRef, onSwitchCamera, o
   // Phase 7: audio pipeline
   const [sysAudioActive, setSysAudioActive] = useState(false);
   const [gainValue, setGainValue] = useState(1.0);
+  const [tunnelUrl, setTunnelUrl] = useState<string | null>(null);
+  const [tunnelLoading, setTunnelLoading] = useState(false);
+  const [btAudioActive, setBtAudioActive] = useState(false);
+  const [btAudioConnected, setBtAudioConnected] = useState(false);
   const [noiseGateThreshold, setNoiseGateThresholdState] = useState(0.02);
   const isConnected = state.connectionState !== 'disconnected';
 
@@ -949,20 +982,30 @@ export default function Dashboard({ state, settings, videoRef, onSwitchCamera, o
   }, [videoRef]);
   const sensorCount = Object.keys(state.sensorData).length;
 
-  const tabBtn = (tab: BottomTab, icon: string, label: string, badge?: number) => (
+  const TabIcon = ({ tab }: { tab: BottomTab }) => {
+    switch (tab) {
+      case 'sensors': return <BarChart3 size={14} />;
+      case 'nfc': return <Radio size={14} />;
+      case 'settings': return <Settings size={14} />;
+      case 'api': return <Code size={14} />;
+    }
+  };
+
+  const tabBtn = (tab: BottomTab, tabLabel: string, badge?: number) => (
     <button onClick={() => setBottomTab(tab)} style={{
       display: 'flex', alignItems: 'center', gap: 6,
-      padding: '0 16px', height: 36, borderRadius: 6, border: 'none', cursor: 'pointer',
+      padding: '0 16px', height: 36, borderRadius: 8, border: 'none', cursor: 'pointer',
       background: bottomTab === tab ? C.accentBg : 'transparent',
-      color: bottomTab === tab ? C.accentL : C.t3,
+      color: bottomTab === tab ? C.accentLight : C.t3,
       fontSize: 13, fontWeight: bottomTab === tab ? 600 : 400,
-      transition: 'all 0.12s',
+      transition: 'all 0.15s ease',
+      fontFamily: FONT_FAMILY,
     }}>
-      <span style={{ fontSize: 14 }}>{icon}</span>
-      {label}
+      <TabIcon tab={tab} />
+      {tabLabel}
       {badge !== undefined && badge > 0 && (
         <span style={{
-          background: bottomTab === tab ? C.accent : C.surface3,
+          background: bottomTab === tab ? C.accent : C.surfaceRaised,
           color: bottomTab === tab ? '#fff' : C.t3,
           fontSize: 10, fontWeight: 700, padding: '1px 6px', borderRadius: 10,
         }}>{badge}</span>
@@ -971,7 +1014,13 @@ export default function Dashboard({ state, settings, videoRef, onSwitchCamera, o
   );
 
   return (
-    <div style={{ display: 'flex', height: '100vh', background: C.bg, color: C.t1, overflow: 'hidden', fontFamily: '-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', background: C.bg, color: C.t1, overflow: 'hidden', fontFamily: FONT_FAMILY }}>
+
+      {/* ── TITLE BAR ── */}
+      <TitleBar themeMode={mode} />
+
+      {/* ── SIDEBAR + MAIN ROW ── */}
+      <div style={{ display: 'flex', flex: 1, minHeight: 0 }}>
 
       {/* ── SIDEBAR ── */}
       <div style={{
@@ -988,8 +1037,8 @@ export default function Dashboard({ state, settings, videoRef, onSwitchCamera, o
             width: 30, height: 30, borderRadius: 8,
             background: `linear-gradient(135deg, ${C.accent}, #4f46e5)`,
             display: 'flex', alignItems: 'center', justifyContent: 'center',
-            fontSize: 16, flexShrink: 0,
-          }}>📱</div>
+            flexShrink: 0, color: '#fff',
+          }}><Smartphone size={16} /></div>
           <div style={{ flex: 1 }}>
             <div style={{ fontSize: 15, fontWeight: 700, color: C.t1, letterSpacing: '-0.3px' }}>PhoneBridge</div>
             <div style={{ fontSize: 10, color: C.t4 }}>v1.1.0</div>
@@ -997,20 +1046,22 @@ export default function Dashboard({ state, settings, videoRef, onSwitchCamera, o
           {/* Notification bell + theme toggle */}
           <div style={{ display: 'flex', gap: 4 }}>
             {notifications !== undefined && onClearNotifications && (
-              <NotificationPanel notifications={notifications} onClear={onClearNotifications} />
+              <NotificationPanel notifications={notifications} onClear={onClearNotifications} themeMode={themeMode} />
             )}
             {onThemeToggle && (
-              <button onClick={onThemeToggle} title={`Switch to ${themeMode === 'dark' ? 'light' : 'dark'} mode`} style={{
-                background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)',
-                borderRadius: 8, color: C.t1, padding: '6px 8px', cursor: 'pointer', fontSize: 14,
+              <button onClick={onThemeToggle} title={`Switch to ${mode === 'dark' ? 'light' : 'dark'} mode`} style={{
+                background: C.surfaceRaised, border: `1px solid ${C.border}`,
+                borderRadius: 8, color: C.t1, padding: '6px 8px', cursor: 'pointer',
+                display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                transition: 'all 0.15s ease',
               }}>
-                {themeMode === 'dark' ? '☀️' : '🌙'}
+                {mode === 'dark' ? <Sun size={14} /> : <Moon size={14} />}
               </button>
             )}
           </div>
         </div>
 
-        <div style={{ padding: '14px 14px 0', display: 'flex', flexDirection: 'column', gap: 12, flex: 1 }}>
+        <div style={{ padding: '14px 14px 0', display: 'flex', flexDirection: 'column', gap: 14, flex: 1 }}>
 
           {/* Connection */}
           <div style={card()}>
@@ -1024,7 +1075,7 @@ export default function Dashboard({ state, settings, videoRef, onSwitchCamera, o
                   background: 'rgba(34,197,94,0.12)', color: '#22c55e',
                   border: '1px solid rgba(34,197,94,0.3)', cursor: 'default',
                 }}>
-                  🔒 E2E Encrypted
+                  <Lock size={11} /> E2E Encrypted
                 </div>
               )}
             </div>
@@ -1046,7 +1097,7 @@ export default function Dashboard({ state, settings, videoRef, onSwitchCamera, o
                   <div style={row({ justifyContent: 'space-between' })}>
                     <span style={{ fontSize: 12, color: C.t3 }}>Battery</span>
                     <span style={{ fontSize: 12, fontWeight: 600, color: state.batteryLevel < 0.2 ? C.red : state.batteryLevel < 0.5 ? C.amber : C.green }}>
-                      {(state.batteryLevel * 100).toFixed(0)}%{state.isCharging ? ' ⚡' : ''}
+                      {(state.batteryLevel * 100).toFixed(0)}%{state.isCharging ? ' charging' : ''}
                     </span>
                   </div>
                 )}
@@ -1054,7 +1105,7 @@ export default function Dashboard({ state, settings, videoRef, onSwitchCamera, o
             )}
           </div>
 
-          {/* QR Code — show when disconnected */}
+          {/* QR Code -- show when disconnected */}
           {!isConnected && state.qrCode && (
             <div style={card()}>
               <SectionLabel>Scan to Connect</SectionLabel>
@@ -1065,7 +1116,7 @@ export default function Dashboard({ state, settings, videoRef, onSwitchCamera, o
                 <img src={state.qrCode} alt="QR" width={190} height={190} />
               </div>
               <div style={{
-                fontFamily: C.mono, fontSize: 11, color: C.accentL,
+                fontFamily: C.mono, fontSize: 11, color: C.accentLight,
                 textAlign: 'center', padding: '4px 0',
               }}>
                 {state.ip}:{state.port}
@@ -1075,6 +1126,131 @@ export default function Dashboard({ state, settings, videoRef, onSwitchCamera, o
               </div>
             </div>
           )}
+
+          {/* Internet Tunnel */}
+          {!isConnected && (
+            <div style={card()}>
+              <SectionLabel>Internet Access</SectionLabel>
+              {tunnelUrl ? (
+                <div>
+                  <div style={{ fontSize: 11, color: C.green, fontWeight: 600, marginBottom: 6, display: 'flex', alignItems: 'center', gap: 4 }}>
+                    <Globe size={12} /> Tunnel Active
+                  </div>
+                  <div style={{
+                    display: 'flex', alignItems: 'center', gap: 6,
+                    background: C.bg, borderRadius: 6, padding: '8px 10px',
+                    border: `1px solid ${C.border}`, marginBottom: 8,
+                  }}>
+                    <div style={{
+                      flex: 1, fontFamily: C.mono, fontSize: 10, color: C.accentLight,
+                      wordBreak: 'break-all',
+                    }}>
+                      {tunnelUrl}
+                    </div>
+                    <button
+                      onClick={() => {
+                        navigator.clipboard.writeText(tunnelUrl);
+                      }}
+                      title="Copy URL"
+                      style={{
+                        flexShrink: 0, background: C.accentBg, border: `1px solid ${C.accent}30`,
+                        borderRadius: 6, padding: '4px 8px', cursor: 'pointer',
+                        color: C.accentLight, fontSize: 10, fontWeight: 600,
+                        display: 'flex', alignItems: 'center', gap: 4,
+                      }}
+                    >
+                      <Copy size={11} /> Copy
+                    </button>
+                  </div>
+                  <div style={{ fontSize: 10, color: C.t4, marginBottom: 8 }}>
+                    Enter this URL in your phone app under "Connect over Internet"
+                  </div>
+                  <button onClick={async () => {
+                    const bridge = (window as any).phoneBridge;
+                    await bridge?.tunnelStop?.();
+                    setTunnelUrl(null);
+                  }} style={{
+                    width: '100%', padding: '6px 0', borderRadius: 8, border: `1px solid ${C.red}40`,
+                    background: C.redBg, color: C.red, fontSize: 11, fontWeight: 600, cursor: 'pointer',
+                  }}>
+                    Stop Tunnel
+                  </button>
+                </div>
+              ) : (
+                <div>
+                  <div style={{ fontSize: 11, color: C.t3, marginBottom: 8, lineHeight: 1.5 }}>
+                    Create a secure tunnel to connect your phone from anywhere over the internet.
+                  </div>
+                  <button onClick={async () => {
+                    setTunnelLoading(true);
+                    try {
+                      const bridge = (window as any).phoneBridge;
+                      const result = await bridge?.tunnelStart?.();
+                      if (result?.url) setTunnelUrl(result.url);
+                    } catch (err) {
+                      console.error('[Tunnel] Failed:', err);
+                    }
+                    setTunnelLoading(false);
+                  }} disabled={tunnelLoading} style={{
+                    width: '100%', padding: '8px 0', borderRadius: 8, border: 'none',
+                    background: tunnelLoading ? C.surfaceRaised : C.accent, color: '#fff',
+                    fontSize: 12, fontWeight: 600, cursor: tunnelLoading ? 'wait' : 'pointer',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+                  }}>
+                    <Globe size={14} />
+                    {tunnelLoading ? 'Starting tunnel...' : 'Enable Internet Access'}
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Bluetooth Audio */}
+          <div style={card()}>
+            <SectionLabel>Bluetooth Audio</SectionLabel>
+            <div style={{ fontSize: 11, color: C.t3, marginBottom: 8, lineHeight: 1.5 }}>
+              Wireless mic & speaker over local audio channel (port 8423).
+            </div>
+            {btAudioActive ? (
+              <div>
+                <div style={{ fontSize: 11, fontWeight: 600, marginBottom: 6, display: 'flex', alignItems: 'center', gap: 4, color: btAudioConnected ? C.green : C.amber }}>
+                  <Bluetooth size={12} /> {btAudioConnected ? 'Phone Connected' : 'Waiting for phone...'}
+                </div>
+                <div style={{
+                  fontFamily: C.mono, fontSize: 10, color: C.t3,
+                  background: C.bg, borderRadius: 6, padding: '6px 10px',
+                  border: `1px solid ${C.border}`, marginBottom: 8,
+                }}>
+                  ws://{state.ip}:8423
+                </div>
+                <button onClick={async () => {
+                  await (window as any).phoneBridge?.btAudioStop?.();
+                  setBtAudioActive(false); setBtAudioConnected(false);
+                }} style={{
+                  width: '100%', padding: '6px 0', borderRadius: 8, border: `1px solid ${C.red}40`,
+                  background: C.redBg, color: C.red, fontSize: 11, fontWeight: 600, cursor: 'pointer',
+                }}>
+                  Stop Audio Server
+                </button>
+              </div>
+            ) : (
+              <button onClick={async () => {
+                try {
+                  const bridge = (window as any).phoneBridge;
+                  await bridge?.btAudioStart?.();
+                  setBtAudioActive(true);
+                  bridge?.onBtAudioState?.((s: any) => setBtAudioConnected(s.connected));
+                } catch (err) { console.error('[BT Audio]', err); }
+              }} style={{
+                width: '100%', padding: '8px 0', borderRadius: 8, border: 'none',
+                background: '#2563eb', color: '#fff',
+                fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+              }}>
+                <Bluetooth size={14} /> Enable Audio Server
+              </button>
+            )}
+          </div>
 
           {/* Cameras */}
           {isConnected && state.cameras.length > 0 && (
@@ -1099,7 +1275,7 @@ export default function Dashboard({ state, settings, videoRef, onSwitchCamera, o
               <SectionLabel>Microphones ({state.microphones.length})</SectionLabel>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
                 {state.microphones.map((mic) => (
-                  <DeviceBtn key={mic.id} active={mic.id === state.activeMicId} onClick={() => onSwitchMic(mic.source)}>
+                  <DeviceBtn key={mic.id} active={mic.source === state.activeMicId} onClick={() => onSwitchMic(mic.source)}>
                     {mic.name}
                   </DeviceBtn>
                 ))}
@@ -1125,6 +1301,29 @@ export default function Dashboard({ state, settings, videoRef, onSwitchCamera, o
               }}>{sensorCount} / {Object.keys(settings.sensors).length}</span>
             </div>
           )}
+
+          {/* Branding */}
+          <div style={{
+            padding: '12px 14px', textAlign: 'center',
+            borderTop: `1px solid ${C.borderSubtle}`,
+          }}>
+            <div style={{ fontSize: 10, color: C.t4, lineHeight: 1.6 }}>
+              Designed & Developed by
+            </div>
+            <a
+              href="https://www.trexinfotech.com"
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{ fontSize: 11, fontWeight: 600, color: C.accentLight, letterSpacing: '0.02em', textDecoration: 'none', cursor: 'pointer' }}
+              onMouseEnter={(e) => (e.currentTarget.style.textDecoration = 'underline')}
+              onMouseLeave={(e) => (e.currentTarget.style.textDecoration = 'none')}
+            >
+              Trex Infotech
+            </a>
+            <div style={{ fontSize: 9, color: C.t4, marginTop: 2 }}>
+              &copy; {new Date().getFullYear()} All rights reserved
+            </div>
+          </div>
         </div>
       </div>
 
@@ -1138,25 +1337,25 @@ export default function Dashboard({ state, settings, videoRef, onSwitchCamera, o
         }}>
           <span style={{ fontSize: 13, color: C.t3 }}>Live Feed</span>
           <div style={{ flex: 1 }} />
-          {/* Driver status badges — always visible */}
+          {/* Driver status badges -- always visible */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
             <div style={{
               display: 'flex', alignItems: 'center', gap: 4, fontSize: 10, fontWeight: 600,
               padding: '2px 8px', borderRadius: 12,
-              background: state.driverStatus.softcamReady ? C.greenBg : C.surface3,
+              background: state.driverStatus.softcamReady ? C.greenBg : C.surfaceRaised,
               color: state.driverStatus.softcamReady ? C.green : C.t4,
               border: `1px solid ${state.driverStatus.softcamReady ? C.green + '40' : C.border}`,
             }}>
-              <span>📷</span> CAM
+              <Camera size={10} /> CAM
             </div>
             <div style={{
               display: 'flex', alignItems: 'center', gap: 4, fontSize: 10, fontWeight: 600,
               padding: '2px 8px', borderRadius: 12,
-              background: state.driverStatus.vbCableReady ? C.greenBg : C.surface3,
+              background: state.driverStatus.vbCableReady ? C.greenBg : C.surfaceRaised,
               color: state.driverStatus.vbCableReady ? C.green : C.t4,
               border: `1px solid ${state.driverStatus.vbCableReady ? C.green + '40' : C.border}`,
             }}>
-              <span>🎙</span> MIC
+              <Mic size={10} /> MIC
             </div>
           </div>
           {isConnected && (
@@ -1168,15 +1367,16 @@ export default function Dashboard({ state, settings, videoRef, onSwitchCamera, o
               </div>
               <div style={{ width: 1, height: 20, background: C.border }} />
               <span style={{ fontSize: 11, color: C.t4, fontFamily: C.mono }}>
-                {settings.video.resolution} · {settings.video.fps}fps · {settings.video.codec}
+                {settings.video.resolution} {settings.video.fps}fps {settings.video.codec}
               </span>
               <div style={{ width: 1, height: 20, background: C.border }} />
               {/* Stats toggle */}
               <button onClick={() => setShowStats((s) => !s)} style={{
                 background: showStats ? C.accentBg : 'transparent',
-                color: showStats ? C.accentL : C.t3,
-                border: `1px solid ${showStats ? C.accentL + '30' : 'transparent'}`,
+                color: showStats ? C.accentLight : C.t3,
+                border: `1px solid ${showStats ? C.accentLight + '30' : 'transparent'}`,
                 borderRadius: 6, padding: '2px 8px', fontSize: 11, cursor: 'pointer',
+                fontFamily: FONT_FAMILY, transition: 'all 0.15s ease',
               }}>Stats</button>
 
               <div style={{ width: 1, height: 20, background: C.border }} />
@@ -1184,16 +1384,17 @@ export default function Dashboard({ state, settings, videoRef, onSwitchCamera, o
               {/* Blur */}
               <button onClick={() => onVideoEffects?.({ blur: !videoEffects?.blur })} title="Toggle background blur" style={{
                 background: videoEffects?.blur ? C.accentBg : 'transparent',
-                color: videoEffects?.blur ? C.accentL : C.t3,
-                border: `1px solid ${videoEffects?.blur ? C.accentL + '30' : 'transparent'}`,
+                color: videoEffects?.blur ? C.accentLight : C.t3,
+                border: `1px solid ${videoEffects?.blur ? C.accentLight + '30' : 'transparent'}`,
                 borderRadius: 6, padding: '2px 8px', fontSize: 11, cursor: 'pointer',
+                fontFamily: FONT_FAMILY, transition: 'all 0.15s ease',
               }}>Blur</button>
 
               {/* Filter picker */}
               <select
                 value={videoEffects?.filter ?? 'none'}
                 onChange={(e) => onVideoEffects?.({ filter: e.target.value as any })}
-                style={{ background: C.surface3, border: `1px solid ${C.border}`, borderRadius: 6, padding: '2px 6px', color: C.t1, fontSize: 11, cursor: 'pointer' }}
+                style={{ background: C.surfaceRaised, border: `1px solid ${C.border}`, borderRadius: 6, padding: '2px 6px', color: C.t1, fontSize: 11, cursor: 'pointer', fontFamily: FONT_FAMILY }}
               >
                 {['none', 'grayscale', 'sepia', 'vivid', 'warm', 'cool'].map((f) => (
                   <option key={f} value={f}>{f}</option>
@@ -1206,14 +1407,17 @@ export default function Dashboard({ state, settings, videoRef, onSwitchCamera, o
                 color: videoEffects?.recording ? C.red : C.t3,
                 border: `1px solid ${videoEffects?.recording ? C.red + '40' : 'transparent'}`,
                 borderRadius: 6, padding: '2px 8px', fontSize: 11, cursor: 'pointer',
-              }}>{videoEffects?.recording ? '⏹ Stop' : '⏺ Rec'}</button>
+                fontFamily: FONT_FAMILY, transition: 'all 0.15s ease',
+              }}>{videoEffects?.recording ? 'Stop' : 'Rec'}</button>
 
               {/* Snapshot */}
               <button onClick={onSnapshot} title="Save snapshot" style={{
                 background: 'transparent', color: C.t3,
                 border: `1px solid transparent`,
                 borderRadius: 6, padding: '2px 8px', fontSize: 11, cursor: 'pointer',
-              }}>📷 Snap</button>
+                display: 'inline-flex', alignItems: 'center', gap: 4,
+                fontFamily: FONT_FAMILY, transition: 'all 0.15s ease',
+              }}><Camera size={11} /> Snap</button>
             </>
           )}
         </div>
@@ -1223,39 +1427,43 @@ export default function Dashboard({ state, settings, videoRef, onSwitchCamera, o
           flex: 1, background: '#000', position: 'relative',
           display: 'flex', alignItems: 'center', justifyContent: 'center',
           minHeight: 0, overflow: 'hidden',
+          padding: 8,
         }}>
           {isConnected ? (
-            <video
-              ref={videoRef}
-              style={{ width: '100%', height: '100%', objectFit: 'contain', cursor: 'crosshair' }}
-              autoPlay playsInline muted
-              onClick={(e) => {
-                if (!onCommand) return;
-                const rect = (e.currentTarget as HTMLVideoElement).getBoundingClientRect();
-                const x = (e.clientX - rect.left) / rect.width;
-                const y = (e.clientY - rect.top) / rect.height;
-                onCommand({ cmd: 'setFocus', x, y });
-              }}
-            />
+            <div style={{ width: '100%', height: '100%', borderRadius: 12, overflow: 'hidden', position: 'relative' }}>
+              <video
+                ref={videoRef}
+                style={{ width: '100%', height: '100%', objectFit: 'contain', cursor: 'crosshair' }}
+                autoPlay playsInline muted
+                onClick={(e) => {
+                  if (!onCommand) return;
+                  const rect = (e.currentTarget as HTMLVideoElement).getBoundingClientRect();
+                  const x = (e.clientX - rect.left) / rect.width;
+                  const y = (e.clientY - rect.top) / rect.height;
+                  onCommand({ cmd: 'setFocus', x, y });
+                }}
+              />
+            </div>
           ) : (
-            <div style={{ textAlign: 'center' }}>
+            <div style={{ textAlign: 'center', maxWidth: 340 }}>
               <div style={{
                 width: 80, height: 80, borderRadius: '50%', margin: '0 auto 16px',
-                background: C.surface2, border: `1px solid ${C.border}`,
-                display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 36,
-              }}>📷</div>
+                background: C.surfaceRaised, border: `1px solid ${C.border}`,
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                color: C.t3,
+              }}><Camera size={36} /></div>
               <div style={{ fontSize: 16, fontWeight: 600, color: C.t2, marginBottom: 6 }}>No camera feed</div>
               <div style={{ fontSize: 13, color: C.t4 }}>
-                {state.qrCode ? 'Scan the QR code in the sidebar to connect' : 'Starting services…'}
+                {state.qrCode ? 'Scan the QR code in the sidebar to connect' : 'Starting services...'}
               </div>
             </div>
           )}
 
           {/* Recording dot + VU meter */}
           {isConnected && (
-            <div style={{ position: 'absolute', top: 12, left: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
+            <div style={{ position: 'absolute', top: 20, left: 20, display: 'flex', alignItems: 'center', gap: 8 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 10px', borderRadius: 20, background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(4px)' }}>
-                <div style={{ width: 7, height: 7, borderRadius: '50%', background: C.red, boxShadow: `0 0 6px ${C.red}`, animation: 'pulse 1.5s infinite' }} />
+                <div style={{ width: 7, height: 7, borderRadius: '50%', background: C.red, boxShadow: `0 0 6px ${C.red}`, animation: 'statusPulse 1.5s infinite' }} />
                 <span style={{ fontSize: 11, color: '#fff', fontWeight: 600 }}>LIVE</span>
               </div>
               <VUMeter stream={remoteStream} />
@@ -1267,7 +1475,7 @@ export default function Dashboard({ state, settings, videoRef, onSwitchCamera, o
 
           {/* Camera feature controls (top-left, below LIVE) */}
           {isConnected && (
-            <div style={{ position: 'absolute', top: 50, left: 12, display: 'flex', gap: 5 }}>
+            <div style={{ position: 'absolute', top: 58, left: 20, display: 'flex', gap: 5 }}>
               {/* Grid toggle */}
               <button
                 onClick={() => { const next = !gridEnabled; setGridEnabled(next); onCommand?.({ cmd: 'setGrid', enabled: next }); }}
@@ -1276,6 +1484,7 @@ export default function Dashboard({ state, settings, videoRef, onSwitchCamera, o
                   padding: '3px 8px', borderRadius: 12, border: 'none', cursor: 'pointer',
                   background: gridEnabled ? 'rgba(124,58,237,0.7)' : 'rgba(0,0,0,0.6)',
                   backdropFilter: 'blur(4px)', color: '#fff', fontSize: 10, fontWeight: 600,
+                  transition: 'all 0.15s ease',
                 }}>
                 Grid
               </button>
@@ -1287,8 +1496,10 @@ export default function Dashboard({ state, settings, videoRef, onSwitchCamera, o
                   padding: '3px 8px', borderRadius: 12, border: 'none', cursor: 'pointer',
                   background: nightModeEnabled ? 'rgba(99,102,241,0.7)' : 'rgba(0,0,0,0.6)',
                   backdropFilter: 'blur(4px)', color: '#fff', fontSize: 10, fontWeight: 600,
+                  display: 'inline-flex', alignItems: 'center', gap: 4,
+                  transition: 'all 0.15s ease',
                 }}>
-                🌙 Night
+                <Moon size={10} /> Night
               </button>
               {/* Take photo */}
               <button
@@ -1298,22 +1509,24 @@ export default function Dashboard({ state, settings, videoRef, onSwitchCamera, o
                   padding: '3px 8px', borderRadius: 12, border: 'none', cursor: 'pointer',
                   background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)',
                   color: '#fff', fontSize: 10, fontWeight: 600,
+                  display: 'inline-flex', alignItems: 'center', gap: 4,
+                  transition: 'all 0.15s ease',
                 }}>
-                📷 Capture
+                <Camera size={10} /> Capture
               </button>
               {/* Exposure */}
               <div style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
                 <button
                   onClick={() => { const next = Math.max(-3, exposureComp - 1); setExposureCompState(next); onCommand?.({ cmd: 'setExposure', compensation: next }); }}
-                  style={{ padding: '3px 7px', borderRadius: 10, border: 'none', cursor: 'pointer', background: 'rgba(0,0,0,0.6)', color: '#fff', fontSize: 11 }}>
-                  −EV
+                  style={{ padding: '3px 7px', borderRadius: 10, border: 'none', cursor: 'pointer', background: 'rgba(0,0,0,0.6)', color: '#fff', fontSize: 11, transition: 'all 0.15s ease' }}>
+                  -EV
                 </button>
                 <span style={{ color: '#fff', fontSize: 10, background: 'rgba(0,0,0,0.6)', padding: '3px 6px', borderRadius: 8 }}>
                   {exposureComp > 0 ? `+${exposureComp}` : exposureComp} EV
                 </span>
                 <button
                   onClick={() => { const next = Math.min(3, exposureComp + 1); setExposureCompState(next); onCommand?.({ cmd: 'setExposure', compensation: next }); }}
-                  style={{ padding: '3px 7px', borderRadius: 10, border: 'none', cursor: 'pointer', background: 'rgba(0,0,0,0.6)', color: '#fff', fontSize: 11 }}>
+                  style={{ padding: '3px 7px', borderRadius: 10, border: 'none', cursor: 'pointer', background: 'rgba(0,0,0,0.6)', color: '#fff', fontSize: 11, transition: 'all 0.15s ease' }}>
                   +EV
                 </button>
               </div>
@@ -1322,7 +1535,7 @@ export default function Dashboard({ state, settings, videoRef, onSwitchCamera, o
 
           {/* Last photo preview (small thumbnail) */}
           {lastPhoto && (
-            <div style={{ position: 'absolute', bottom: 60, left: 12, cursor: 'pointer' }}
+            <div style={{ position: 'absolute', bottom: 68, left: 20, cursor: 'pointer' }}
               onClick={() => setLastPhoto(null)} title="Click to dismiss">
               <img src={lastPhoto} alt="Last capture"
                 style={{ width: 64, height: 48, objectFit: 'cover', borderRadius: 6, border: `2px solid ${C.accent}`, boxShadow: '0 2px 8px rgba(0,0,0,0.5)' }} />
@@ -1331,7 +1544,7 @@ export default function Dashboard({ state, settings, videoRef, onSwitchCamera, o
 
           {/* Camera / torch / zoom controls overlay */}
           {isConnected && (
-            <div style={{ position: 'absolute', bottom: 12, right: 12, display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 6 }}>
+            <div style={{ position: 'absolute', bottom: 20, right: 20, display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 6 }}>
               {/* Privacy mode button */}
               <button
                 onClick={() => {
@@ -1344,9 +1557,10 @@ export default function Dashboard({ state, settings, videoRef, onSwitchCamera, o
                   padding: '5px 10px', borderRadius: 16, border: 'none', cursor: 'pointer',
                   background: privacyModeActive ? 'rgba(220,38,38,0.8)' : 'rgba(0,0,0,0.6)',
                   backdropFilter: 'blur(4px)',
-                  color: '#fff', fontSize: 11, fontWeight: 600, transition: 'all 0.12s',
+                  color: '#fff', fontSize: 11, fontWeight: 600, transition: 'all 0.15s ease',
+                  display: 'inline-flex', alignItems: 'center', gap: 4,
                 }}>
-                🔒 {privacyModeActive ? 'Private' : 'Privacy'}
+                <Lock size={11} /> {privacyModeActive ? 'Private' : 'Privacy'}
               </button>
 
               {/* Torch + Zoom row */}
@@ -1359,9 +1573,10 @@ export default function Dashboard({ state, settings, videoRef, onSwitchCamera, o
                     padding: '5px 10px', borderRadius: 16, border: 'none', cursor: 'pointer',
                     background: torchEnabled ? 'rgba(245,158,11,0.8)' : 'rgba(0,0,0,0.6)',
                     backdropFilter: 'blur(4px)',
-                    color: '#fff', fontSize: 11, fontWeight: 600, transition: 'all 0.12s',
+                    color: '#fff', fontSize: 11, fontWeight: 600, transition: 'all 0.15s ease',
+                    display: 'inline-flex', alignItems: 'center', gap: 4,
                   }}>
-                  🔦 {torchEnabled ? 'On' : 'Off'}
+                  <Flashlight size={11} /> {torchEnabled ? 'On' : 'Off'}
                 </button>
                 {/* Zoom out */}
                 <button
@@ -1371,14 +1586,14 @@ export default function Dashboard({ state, settings, videoRef, onSwitchCamera, o
                     padding: '5px 9px', borderRadius: 16, border: 'none', cursor: zoomLevel > 1.0 ? 'pointer' : 'default',
                     background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)',
                     color: zoomLevel > 1.0 ? '#fff' : 'rgba(255,255,255,0.3)',
-                    fontSize: 13, fontWeight: 700, transition: 'all 0.12s',
-                  }}>−</button>
+                    fontSize: 13, fontWeight: 700, transition: 'all 0.15s ease',
+                  }}>-</button>
                 {/* Zoom level */}
                 <div style={{
                   padding: '5px 10px', borderRadius: 16,
                   background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)',
                   color: '#fff', fontSize: 11, fontWeight: 600, minWidth: 44, textAlign: 'center',
-                }}>{zoomLevel.toFixed(1)}×</div>
+                }}>{zoomLevel.toFixed(1)}x</div>
                 {/* Zoom in */}
                 <button
                   onClick={() => { const next = parseFloat(Math.min(10.0, zoomLevel + 0.5).toFixed(1)); setZoomLevel(next); onZoom(next); }}
@@ -1387,7 +1602,7 @@ export default function Dashboard({ state, settings, videoRef, onSwitchCamera, o
                     padding: '5px 9px', borderRadius: 16, border: 'none', cursor: zoomLevel < 10.0 ? 'pointer' : 'default',
                     background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)',
                     color: zoomLevel < 10.0 ? '#fff' : 'rgba(255,255,255,0.3)',
-                    fontSize: 13, fontWeight: 700, transition: 'all 0.12s',
+                    fontSize: 13, fontWeight: 700, transition: 'all 0.15s ease',
                   }}>+</button>
               </div>
               {/* Camera switcher row */}
@@ -1398,7 +1613,7 @@ export default function Dashboard({ state, settings, videoRef, onSwitchCamera, o
                       padding: '5px 10px', borderRadius: 16, border: 'none', cursor: 'pointer',
                       background: cam.id === state.activeCameraId ? C.accent : 'rgba(0,0,0,0.6)',
                       backdropFilter: 'blur(4px)',
-                      color: '#fff', fontSize: 11, fontWeight: 600, transition: 'all 0.12s',
+                      color: '#fff', fontSize: 11, fontWeight: 600, transition: 'all 0.15s ease',
                     }}>{cam.name}</button>
                   ))}
                 </div>
@@ -1431,10 +1646,10 @@ export default function Dashboard({ state, settings, videoRef, onSwitchCamera, o
             height: 40, display: 'flex', alignItems: 'center',
             padding: '0 12px', gap: 4, borderBottom: `1px solid ${C.border}`, flexShrink: 0,
           }}>
-            {tabBtn('sensors', '📊', 'Sensors', sensorCount)}
-            {tabBtn('nfc', '📡', 'NFC')}
-            {tabBtn('settings', '⚙️', 'Settings')}
-            {tabBtn('api', '🔗', 'API')}
+            {tabBtn('sensors', 'Sensors', sensorCount)}
+            {tabBtn('nfc', 'NFC')}
+            {tabBtn('settings', 'Settings')}
+            {tabBtn('api', 'API')}
           </div>
 
           {/* Tab content */}
@@ -1465,6 +1680,16 @@ export default function Dashboard({ state, settings, videoRef, onSwitchCamera, o
           </div>
         </div>
       </div>
+
+      </div>{/* end sidebar+main row */}
+
+      {/* Inject pulse animation keyframes */}
+      <style>{`
+        @keyframes statusPulse {
+          0%, 100% { opacity: 1; }
+          50% { opacity: 0.4; }
+        }
+      `}</style>
     </div>
   );
 }

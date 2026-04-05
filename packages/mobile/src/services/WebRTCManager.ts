@@ -6,10 +6,11 @@ import {
   MediaStream,
 } from 'react-native-webrtc';
 import { SignalingClient } from './SignalingClient';
+import { ICE_SERVERS } from '@phonebridge/shared';
 import type { SignalingMessage } from '@phonebridge/shared';
 
 const RTC_CONFIG = {
-  iceServers: [], // LAN-only, no STUN/TURN needed
+  iceServers: ICE_SERVERS,
 };
 
 const MEDIA_CONSTRAINTS = {
@@ -320,9 +321,18 @@ export class WebRTCManager {
     const videoTrack = this.localStream?.getVideoTracks()[0];
     if (videoTrack) {
       try {
-        await (videoTrack as any).applyConstraints({ zoom: level });
+        // Try advanced constraints first (standard WebRTC)
+        await (videoTrack as any).applyConstraints({
+          advanced: [{ zoom: level } as any],
+        });
       } catch {
-        // zoom not supported natively; ignore
+        try {
+          // Fallback: direct constraint
+          await (videoTrack as any).applyConstraints({ zoom: level } as any);
+        } catch {
+          // zoom not supported on this device
+          console.warn('[WebRTC] Zoom not supported via constraints');
+        }
       }
     }
   }

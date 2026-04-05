@@ -11,6 +11,7 @@ import {
   Dimensions,
   ScrollView,
   RefreshControl,
+  Linking,
 } from 'react-native';
 import {
   Camera,
@@ -30,6 +31,8 @@ export default function HomeScreen({ navigation }: Props) {
   const [manualIP, setManualIP] = useState('');
   const [manualPort, setManualPort] = useState('8765');
   const [showManual, setShowManual] = useState(false);
+  const [showRemote, setShowRemote] = useState(false);
+  const [remoteURL, setRemoteURL] = useState('');
   const [mode, setMode] = useState<'list' | 'qr'>('list');
   const [cameraPermission, setCameraPermission] = useState<string>('not-determined');
   const [recentConnections, setRecentConnections] = useState<ConnectionRecord[]>([]);
@@ -53,6 +56,21 @@ export default function HomeScreen({ navigation }: Props) {
 
   const connectToDevice = (ip: string, port: number) => {
     navigation.navigate('Stream', { ip, port });
+  };
+
+  const connectRemote = () => {
+    let url = remoteURL.trim();
+    if (!url) { Alert.alert('Error', 'Please enter a tunnel URL'); return; }
+    // Strip protocol if present for parsing
+    let host = url.replace(/^wss?:\/\//, '').replace(/\/+$/, '');
+    if (!host) { Alert.alert('Error', 'Please enter a valid tunnel URL'); return; }
+    // Extract hostname and optional port
+    const parts = host.split(':');
+    const hostname = parts[0];
+    const port = parts[1] ? parseInt(parts[1], 10) : 443;
+    // Build full WebSocket URL
+    const wsUrl = url.startsWith('ws://') || url.startsWith('wss://') ? url : `wss://${host}`;
+    navigation.navigate('Stream', { ip: hostname, port, wsUrl });
   };
 
   const connectManual = () => {
@@ -257,6 +275,39 @@ export default function HomeScreen({ navigation }: Props) {
         )}
       </View>
 
+      {/* Remote Connect (Internet) */}
+      <View style={styles.section}>
+        <TouchableOpacity onPress={() => setShowRemote(!showRemote)} style={styles.manualToggle}>
+          <Text style={styles.manualToggleText}>
+            {showRemote ? '▲ Hide remote connect' : '🌐 Connect over Internet'}
+          </Text>
+        </TouchableOpacity>
+
+        {showRemote && (
+          <View style={{ marginTop: 8 }}>
+            <Text style={{ color: '#71717a', fontSize: 11, marginBottom: 8, lineHeight: 16 }}>
+              Enter the tunnel URL shown on your PC's desktop app to connect over the internet.
+            </Text>
+            <View style={styles.manualForm}>
+              <TextInput
+                style={[styles.input, { flex: 1 }]}
+                placeholder="Tunnel URL (e.g. abc123.trycloudflare.com)"
+                placeholderTextColor="#52525b"
+                value={remoteURL}
+                onChangeText={setRemoteURL}
+                autoCapitalize="none"
+                autoCorrect={false}
+                returnKeyType="go"
+                onSubmitEditing={connectRemote}
+              />
+              <TouchableOpacity style={[styles.connectBtn, { backgroundColor: '#2563eb' }]} onPress={connectRemote}>
+                <Text style={styles.connectBtnText}>Go</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        )}
+      </View>
+
       {/* Recent Connections */}
       {recentConnections.length > 0 && (
         <View style={styles.section}>
@@ -299,6 +350,18 @@ export default function HomeScreen({ navigation }: Props) {
 
       <View style={styles.footer}>
         <Text style={styles.footerText}>Make sure your phone and PC are on the same WiFi network</Text>
+        <Text style={{ color: '#52525b', fontSize: 10, marginTop: 12, fontWeight: '500' }}>
+          Designed & Developed by
+        </Text>
+        <Text
+          style={{ color: '#a78bfa', fontSize: 11, fontWeight: '600', marginTop: 2 }}
+          onPress={() => Linking.openURL('https://www.trexinfotech.com')}
+        >
+          Trex Infotech
+        </Text>
+        <Text style={{ color: '#3f3f46', fontSize: 9, marginTop: 2 }}>
+          &copy; {new Date().getFullYear()} All rights reserved
+        </Text>
       </View>
     </ScrollView>
   );

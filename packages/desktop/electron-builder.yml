@@ -17,6 +17,13 @@ extraResources:
     to: icon.ico
   - from: resources/icon.png
     to: icon.png
+  - from: resources/vbcable
+    to: vbcable
+    filter:
+      - "VBCABLE_Setup_x64.exe"
+      - "VBCABLE_Setup.exe"
+      - "VBCABLE_ControlPanel.exe"
+      - "readme.txt"
 
 win:
   icon: resources/icon.ico

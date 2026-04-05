@@ -5,6 +5,7 @@ import { AudioDecoder } from './audio/AudioDecoder';
 import { VideoProcessor, type VideoEffects, DEFAULT_EFFECTS } from './video/VideoProcessor';
 import { OnboardingOverlay, useOnboarding } from './components/OnboardingOverlay';
 import { useNotifications } from './components/NotificationPanel';
+import { ToastProvider } from './components/Toast';
 import { applyTheme, getPreferredTheme } from './theme';
 import type {
   ConnectionState,
@@ -20,21 +21,23 @@ interface DriverStatus {
 
 interface PhoneBridgeAPI {
   getConnectionInfo: () => Promise<{ ip: string; port: number; sessionId: string }>;
+  getInitData: () => Promise<any>;
   sendCommand: (command: unknown) => Promise<void>;
   getSensorData: (sensor: string) => Promise<unknown>;
   getSensorHistory: (sensor: string, limit: number) => Promise<unknown>;
-  onInit: (cb: (data: any) => void) => void;
-  onPhoneConnected: (cb: (connected: boolean) => void) => void;
-  onConnectionState: (cb: (state: string) => void) => void;
-  onSignaling: (cb: (msg: any) => void) => void;
-  onDeviceInfo: (cb: (info: any) => void) => void;
-  onSensorData: (cb: (data: any) => void) => void;
-  onPhoneStatus: (cb: (status: any) => void) => void;
+  onInit: (cb: (data: any) => void) => (() => void) | void;
+  onPhoneConnected: (cb: (connected: boolean) => void) => (() => void) | void;
+  onConnectionState: (cb: (state: string) => void) => (() => void) | void;
+  onSignaling: (cb: (msg: any) => void) => (() => void) | void;
+  onDeviceInfo: (cb: (info: any) => void) => (() => void) | void;
+  onSensorData: (cb: (data: any) => void) => (() => void) | void;
+  onPhoneStatus: (cb: (status: any) => void) => (() => void) | void;
   sendSignaling: (msg: unknown) => void;
   sendVideoFrame: (frameBuffer: ArrayBuffer, width: number, height: number) => void;
   sendAudioFrame: (frameBuffer: ArrayBuffer) => void;
   getDriverStatus: () => Promise<DriverStatus>;
-  onDriverStatus: (cb: (status: DriverStatus) => void) => void;
+  onDriverStatus: (cb: (status: DriverStatus) => void) => (() => void) | void;
+  installVBCable: () => Promise<{ success: boolean; message: string }>;
 }
 
 declare global {
@@ -47,6 +50,7 @@ const noop = () => {};
 const noopAsync = () => Promise.resolve({} as any);
 const mockBridge: PhoneBridgeAPI = {
   getConnectionInfo: noopAsync,
+  getInitData: () => Promise.resolve(null),
   sendCommand: noopAsync,
   getSensorData: noopAsync,
   getSensorHistory: noopAsync,
@@ -212,11 +216,26 @@ export default function App() {
 
   // ── Bridge event handlers ──────────────────────────────────────────────────
   useEffect(() => {
-    getBridge().onInit((data: any) => {
-      setState((prev) => ({ ...prev, ip: data.ip, port: data.port, qrCode: data.qrCode }));
-    });
+    const cleanups: ((() => void) | void)[] = [];
+    const bridge = getBridge();
 
-    getBridge().onPhoneConnected((connected) => {
+    cleanups.push(bridge.onInit((data: any) => {
+      setState((prev) => ({ ...prev, ip: data.ip, port: data.port, qrCode: data.qrCode }));
+    }));
+
+    // Pull init data in case the push event arrived before React mounted
+    bridge.getInitData().then((data: any) => {
+      if (data) {
+        setState((prev) => ({
+          ...prev,
+          ip: data.ip ?? prev.ip,
+          port: data.port ?? prev.port,
+          qrCode: data.qrCode ?? prev.qrCode,
+        }));
+      }
+    }).catch(() => {});
+
+    cleanups.push(bridge.onPhoneConnected((connected) => {
       setState((prev) => ({ ...prev, connectionState: connected ? 'connected' : 'disconnected' }));
       if (connected) {
         addNotification('Phone connected', 'info', '📱');
@@ -228,9 +247,9 @@ export default function App() {
         }
         audioDecoderRef.current.stop();
       }
-    });
+    }));
 
-    getBridge().onDeviceInfo((info: any) => {
+    cleanups.push(bridge.onDeviceInfo((info: any) => {
       setState((prev) => ({
         ...prev,
         cameras:      info.cameras      || [],
@@ -241,9 +260,9 @@ export default function App() {
         activeCameraId: info.cameras?.[0]?.id  || null,
         activeMicId:    info.microphones?.[0]?.id || null,
       }));
-    });
+    }));
 
-    getBridge().onSensorData((data: any) => {
+    cleanups.push(bridge.onSensorData((data: any) => {
       if (data.type === 'sensor') {
         setState((prev) => ({
           ...prev,
@@ -256,27 +275,28 @@ export default function App() {
           sensorData: { ...prev.sensorData, [data.sensor]: { data: last.data, timestamp: last.ts } },
         }));
       }
-    });
+    }));
 
-    getBridge().onPhoneStatus((status: any) => {
+    cleanups.push(bridge.onPhoneStatus((status: any) => {
       setState((prev) => ({ ...prev, batteryLevel: status.battery, isCharging: status.isCharging }));
       if (status.battery < 0.1) {
         addNotification(`Battery critical: ${Math.round(status.battery * 100)}%`, 'error', '🔋');
       } else if (status.battery < 0.2) {
         addNotification(`Battery low: ${Math.round(status.battery * 100)}%`, 'warn', '🔋');
       }
-    });
+    }));
 
-    getBridge().onDriverStatus((status) => {
+    cleanups.push(bridge.onDriverStatus((status) => {
       setState((prev) => ({ ...prev, driverStatus: status }));
-    });
+    }));
 
     // Load initial driver status
-    getBridge().getDriverStatus().then((status) => {
+    bridge.getDriverStatus().then((status) => {
       setState((prev) => ({ ...prev, driverStatus: status }));
     }).catch(() => {});
 
     return () => {
+      cleanups.forEach((fn) => fn?.());
       if (frameLoopRef.current) cancelAnimationFrame(frameLoopRef.current);
       videoProcessorRef.current.stop();
       audioDecoderRef.current.stop();
@@ -349,7 +369,7 @@ export default function App() {
   }, []);
 
   return (
-    <>
+    <ToastProvider>
       <canvas ref={canvasRef} style={{ display: 'none' }} />
       {showOnboarding && <OnboardingOverlay onDone={dismissOnboarding} />}
       <Dashboard
@@ -374,6 +394,6 @@ export default function App() {
         themeMode={themeMode}
         onThemeToggle={() => setThemeMode((m) => m === 'dark' ? 'light' : 'dark')}
       />
-    </>
+    </ToastProvider>
   );
 }

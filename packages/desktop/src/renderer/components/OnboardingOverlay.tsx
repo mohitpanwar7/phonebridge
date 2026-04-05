@@ -91,5 +91,5 @@ export function useOnboarding() {
     const done = localStorage.getItem('phonebridge-onboarded');
     if (!done) setShowOnboarding(true);
   }, []);
-  return { showOnboarding, dismissOnboarding: () => setShowOnboarding(false) };
+  return { showOnboarding, dismissOnboarding: () => { localStorage.setItem('phonebridge-onboarded', '1'); setShowOnboarding(false); } };
 }

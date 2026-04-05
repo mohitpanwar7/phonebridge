@@ -202,7 +202,7 @@ export default function StreamScreen({ route, navigation }: Props) {
       setCameras(cams);
       setMicrophones(mics);
 
-      const wsUrl = `ws://${ip}:${port}`;
+      const wsUrl = route.params.wsUrl || `ws://${ip}:${port}`;
       const signaling = new SignalingClient(wsUrl);
       signalingRef.current = signaling;
 
@@ -324,7 +324,7 @@ export default function StreamScreen({ route, navigation }: Props) {
   };
 
   // ── Desktop command handler ────────────────────────────────────────────────
-  const handleDesktopCommand = (msg: any) => {
+  const handleDesktopCommand = async (msg: any) => {
     switch (msg.cmd) {
       case 'switchCamera':
         webrtcRef.current?.switchCamera(msg.deviceId);
@@ -357,15 +357,30 @@ export default function StreamScreen({ route, navigation }: Props) {
       case 'setFocus':
         handleTapToFocus(msg.x, msg.y);
         break;
-      case 'setExposure':
+      case 'setExposure': {
         setExposureComp(msg.compensation);
+        // Apply exposure compensation via video track constraints
+        const videoTrack = webrtcRef.current?.getVideoTrack?.();
+        if (videoTrack) {
+          try {
+            await videoTrack.applyConstraints({
+              advanced: [{ exposureCompensation: msg.compensation } as any],
+            });
+          } catch { /* exposure constraints not supported on all devices */ }
+        }
         break;
+      }
       case 'takePhoto':
         capturePhoto();
         break;
-      case 'setNightMode':
+      case 'setNightMode': {
         setNightMode(msg.enabled);
+        // Night mode adjusts torch + exposure
+        if (msg.enabled) {
+          webrtcRef.current?.setTorch?.(true);
+        }
         break;
+      }
       case 'setGrid':
         setShowGrid(msg.enabled);
         break;
@@ -393,9 +408,13 @@ export default function StreamScreen({ route, navigation }: Props) {
   };
 
   const switchMic = async (micSource: string) => {
-    micManagerRef.current.setSource(micSource);
-    await webrtcRef.current?.switchMicrophone(micSource);
-    setCurrentMic(micSource);
+    try {
+      micManagerRef.current.setSource(micSource);
+      await webrtcRef.current?.switchMicrophone(micSource);
+      setCurrentMic(micSource);
+    } catch (err) {
+      console.warn('[switchMic] Mic switching may be limited on this platform:', err);
+    }
     setShowMicPicker(false);
     showAndResetTimer();
   };

@@ -18,6 +18,8 @@ import { CommandServer } from './api/CommandServer';
 import { NamedPipeServer } from './api/NamedPipeServer';
 import { ComputedSensors } from './ComputedSensors';
 import { SensorRecorder } from './SensorRecorder';
+import { TunnelManager } from './TunnelManager';
+import { BluetoothAudio } from './BluetoothAudio';
 import { SensorReplayer } from './SensorReplayer';
 import {
   SIGNALING_PORT,
@@ -68,6 +70,10 @@ let namedPipeServer: NamedPipeServer;
 let computedSensors: ComputedSensors;
 let sensorRecorder: SensorRecorder;
 let sensorReplayer: SensorReplayer;
+let tunnelManager: TunnelManager;
+let bluetoothAudio: BluetoothAudio;
+
+const BT_AUDIO_PORT = 8423;
 let cachedInitData: unknown = null;
 
 // Track driver status for renderer
@@ -79,7 +85,8 @@ function createWindow() {
     width: 1100,
     height: 750,
     minWidth: 800,
-    minHeight: 600,
+    minHeight: 650,
+    frame: false,
     title: APP_NAME,
     icon: getIconPath(),
     webPreferences: {
@@ -229,14 +236,16 @@ async function checkDrivers() {
   softcamReady = await softcamInstaller.ensureInstalled();
   mainWindow?.webContents.send('driver-status', { softcamReady, vbCableReady });
 
-  // Check VB-Cable (virtual mic)
-  vbCableReady = await vbCableDetector.ensureInstalled();
+  // Check VB-Cable (virtual mic) — just detect, don't auto-prompt
+  vbCableReady = vbCableDetector.isInstalled();
   if (vbCableReady) {
     const started = virtualMic.start();
     if (!started) {
       console.warn('[Main] VB-Cable detected but VirtualMicrophone could not start (naudiodon missing?)');
       vbCableReady = false;
     }
+  } else {
+    console.log('[Main] VB-Cable not detected. User can install via Settings > Install VB-Cable.');
   }
   mainWindow?.webContents.send('driver-status', { softcamReady, vbCableReady });
 }
@@ -261,6 +270,9 @@ ipcMain.handle('get-connection-info', () => ({
   port: SIGNALING_PORT,
   sessionId: signalingServer?.sessionId,
 }));
+
+// Renderer can pull init data on mount (fixes race where push arrives before React mounts)
+ipcMain.handle('get-init-data', () => cachedInitData);
 
 ipcMain.handle('send-command', (_event, command) => {
   signalingServer?.sendCommand(command);
@@ -299,6 +311,18 @@ ipcMain.on('send-audio-frame', (_event, frameBuffer: Buffer) => {
 
 // Driver status query from renderer
 ipcMain.handle('get-driver-status', () => ({ softcamReady, vbCableReady }));
+
+// Install VB-Cable from bundled drivers
+ipcMain.handle('install-vbcable', async () => {
+  if (!vbCableDetector) return { success: false, message: 'App not initialized yet.' };
+  const result = await vbCableDetector.install();
+  if (result.success) {
+    vbCableReady = true;
+    virtualMic?.start();
+    mainWindow?.webContents.send('driver-status', { softcamReady, vbCableReady });
+  }
+  return result;
+});
 
 // ── NFC IPC ────────────────────────────────────────────────────────────────
 ipcMain.handle('nfc-get-tags', () => nfcStore?.getAllTags() ?? []);
@@ -365,6 +389,51 @@ ipcMain.handle('sensor-replay-pause', () => sensorReplayer?.pauseReplay());
 ipcMain.handle('sensor-replay-resume', () => sensorReplayer?.resumeReplay());
 ipcMain.handle('sensor-replay-stop', () => sensorReplayer?.stopReplay());
 ipcMain.handle('sensor-replay-speed', (_event, speed: number) => sensorReplayer?.setPlaybackSpeed(speed));
+
+// Bluetooth Audio
+ipcMain.handle('bt-audio-start', async () => {
+  if (!bluetoothAudio) bluetoothAudio = new BluetoothAudio();
+  bluetoothAudio.start(BT_AUDIO_PORT);
+  bluetoothAudio.onMicAudio((pcm) => {
+    // Route phone mic audio to VirtualMicrophone (VB-Cable)
+    virtualMic?.writePCM(pcm);
+  });
+  bluetoothAudio.onConnectionChange((connected) => {
+    mainWindow?.webContents.send('bt-audio-state', { connected, port: BT_AUDIO_PORT });
+  });
+  return { running: true, port: BT_AUDIO_PORT };
+});
+ipcMain.handle('bt-audio-stop', () => {
+  bluetoothAudio?.stop();
+  return { running: false };
+});
+ipcMain.handle('bt-audio-status', () => ({
+  running: bluetoothAudio?.isConnected ?? false,
+  port: BT_AUDIO_PORT,
+}));
+
+// Tunnel (internet connectivity)
+ipcMain.handle('tunnel-start', async () => {
+  if (!tunnelManager) tunnelManager = new TunnelManager();
+  const url = await tunnelManager.start(SIGNALING_PORT);
+  return { url, running: tunnelManager.running };
+});
+ipcMain.handle('tunnel-stop', () => {
+  tunnelManager?.stop();
+  return { url: null, running: false };
+});
+ipcMain.handle('tunnel-status', () => ({
+  url: tunnelManager?.url ?? null,
+  running: tunnelManager?.running ?? false,
+}));
+
+// Window controls for frameless window
+ipcMain.handle('window-minimize', () => mainWindow?.minimize());
+ipcMain.handle('window-maximize', () => {
+  if (mainWindow?.isMaximized()) mainWindow.unmaximize();
+  else mainWindow?.maximize();
+});
+ipcMain.handle('window-close', () => mainWindow?.close());
 
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -455,6 +524,8 @@ app.on('before-quit', () => {
   sensorReplayer?.stopReplay();
   virtualCamera?.destroy();
   virtualMic?.stop();
+  tunnelManager?.stop();
+  bluetoothAudio?.stop();
 });
 
 app.on('window-all-closed', () => {

@@ -1,8 +1,9 @@
 import { useEffect, useRef, useCallback } from 'react';
 import noiseGateCode from '../audio/NoiseGateProcessor.js?raw';
+import { ICE_SERVERS } from '@phonebridge/shared';
 
 const RTC_CONFIG: RTCConfiguration = {
-  iceServers: [], // LAN-only — no STUN/TURN needed
+  iceServers: ICE_SERVERS,
 };
 
 interface UseWebRTCOptions {
@@ -118,9 +119,10 @@ export function useWebRTC({ onTrack }: UseWebRTCOptions = {}) {
       }
     };
 
-    bridge.onSignaling(handleSignaling);
+    const cleanupSignaling = bridge.onSignaling(handleSignaling);
 
     return () => {
+      cleanupSignaling?.();
       stopSystemAudio();
       pcRef.current?.close();
       pcRef.current = null;
